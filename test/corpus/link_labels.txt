@@ -1,9 +1,7 @@
 ================================================================================
-Full reference link with a resolving definition
+Inline code inside link label
 ================================================================================
-[full ref][mylabel]
-
-[mylabel]: https://example.com "Example"
+[`path/to/file`](url)
 Trailing paragraph.
 --------------------------------------------------------------------------------
 
@@ -11,34 +9,22 @@ Trailing paragraph.
   (section
     (paragraph
       (inline
-        (full_reference_link
+        (inline_link
           (link_label
-            (text_span
-              (word_token))
-            (text_span
-              (word_token)))
-          (link_label
-            (text_span
-              (word_token))))))
-    (blank_line)
-    (link_reference_definition
-      (link_label
-        (text_span
-          (word_token)))
-      (link_destination)
-      (link_title))
-    (paragraph
-      (inline
+            (inline_code
+              (inline_code_delimiter)
+              (inline_code_content)
+              (inline_code_delimiter)))
+          (link_destination))
         (text_span
           (word_token))
         (text_span
           (word_token)
           (terminator))))))
 ================================================================================
-Collapsed reference link
+Strong inside link label
 ================================================================================
-[collapsed ref][]
-
+[**bold text**](url)
 Trailing paragraph.
 --------------------------------------------------------------------------------
 
@@ -46,26 +32,24 @@ Trailing paragraph.
   (section
     (paragraph
       (inline
-        (collapsed_reference_link
+        (inline_link
           (link_label
-            (text_span
-              (word_token))
-            (text_span
-              (word_token))))))
-    (blank_line)
-    (paragraph
-      (inline
+            (strong
+              (strong_delimiter)
+              (strong_content
+                (word_token)
+                (word_token))
+              (strong_delimiter)))
+          (link_destination))
         (text_span
           (word_token))
         (text_span
           (word_token)
           (terminator))))))
 ================================================================================
-Shortcut link with a resolving definition
+Emphasis inside link label
 ================================================================================
-[shortcut ref]
-
-[shortcut ref]: https://example.com
+[*emphasized*](url)
 Trailing paragraph.
 --------------------------------------------------------------------------------
 
@@ -73,58 +57,23 @@ Trailing paragraph.
   (section
     (paragraph
       (inline
-        (shortcut_link
+        (inline_link
           (link_label
-            (text_span
-              (word_token))
-            (text_span
-              (word_token))))))
-    (blank_line)
-    (link_reference_definition
-      (link_label
-        (text_span
-          (word_token))
-        (text_span
-          (word_token)))
-      (link_destination))
-    (paragraph
-      (inline
+            (emphasis
+              (emphasis_delimiter)
+              (emphasis_content
+                (word_token))
+              (emphasis_delimiter)))
+          (link_destination))
         (text_span
           (word_token))
         (text_span
           (word_token)
           (terminator))))))
 ================================================================================
-Shortcut link without a resolving definition (resolution is consumer-side)
+Identifier-like token inside link label
 ================================================================================
-[shortcut ref]
-
-Trailing paragraph.
---------------------------------------------------------------------------------
-
-(document
-  (section
-    (paragraph
-      (inline
-        (shortcut_link
-          (link_label
-            (text_span
-              (word_token))
-            (text_span
-              (word_token))))))
-    (blank_line)
-    (paragraph
-      (inline
-        (text_span
-          (word_token))
-        (text_span
-          (word_token)
-          (terminator))))))
-================================================================================
-Inline link and full reference link in one paragraph
-================================================================================
-[inline](https://example.com "t") and [full][label]
-
+[InnovAIte](url)
 Trailing paragraph.
 --------------------------------------------------------------------------------
 
@@ -135,31 +84,17 @@ Trailing paragraph.
         (inline_link
           (link_label
             (text_span
-              (word_token)))
-          (link_destination)
-          (link_title))
-        (text_span
-          (word_token))
-        (full_reference_link
-          (link_label
-            (text_span
-              (word_token)))
-          (link_label
-            (text_span
-              (word_token))))))
-    (blank_line)
-    (paragraph
-      (inline
+              (identifier_like_token)))
+          (link_destination))
         (text_span
           (word_token))
         (text_span
           (word_token)
           (terminator))))))
 ================================================================================
-Image full reference stays a single image node
+Plain text inside link label
 ================================================================================
-![alt][label]
-
+[normal simple text](url)
 Trailing paragraph.
 --------------------------------------------------------------------------------
 
@@ -167,16 +102,97 @@ Trailing paragraph.
   (section
     (paragraph
       (inline
-        (image
+        (inline_link
+          (link_label
+            (text_span
+              (word_token))
+            (text_span
+              (word_token))
+            (text_span
+              (word_token)))
+          (link_destination))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Footnote reference is not mistaken for a link label
+================================================================================
+[^1](url)
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (footnote_reference
+          (footnote_reference_open)
+          (footnote_reference_label))
+        (text_span
+          (bracket)
+          (word_token)
+          (bracket))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Nested shortcut link breaks the outer label
+================================================================================
+[a [nested] link](url)
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (bracket)
+          (word_token))
+        (shortcut_link
+          (link_label
+            (text_span
+              (word_token))))
+        (text_span
+          (word_token)
+          (bracket)
+          (bracket)
+          (word_token)
+          (bracket))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Nested inline link wins over the outer label
+================================================================================
+[foo [bar](/uri)](/uri)
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (bracket)
+          (word_token))
+        (inline_link
           (link_label
             (text_span
               (word_token)))
-          (link_label
-            (text_span
-              (word_token))))))
-    (blank_line)
-    (paragraph
-      (inline
+          (link_destination))
+        (text_span
+          (bracket)
+          (bracket)
+          (operator_like)
+          (word_token)
+          (bracket))
         (text_span
           (word_token))
         (text_span

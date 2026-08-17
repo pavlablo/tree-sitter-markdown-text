@@ -9,7 +9,11 @@ Trailing paragraph.
 (document
   (section
     (image_block
-      (link_label)
+      (link_label
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)))
       (link_destination))
     (blank_line)
     (paragraph
@@ -34,7 +38,9 @@ Trailing paragraph.
     (paragraph
       (inline
         (image
-          (link_label)
+          (link_label
+            (text_span
+              (word_token)))
           (link_destination))
         (text_span
           (word_token))
@@ -61,7 +67,9 @@ Trailing paragraph.
 (document
   (section
     (image_block
-      (link_label)
+      (link_label
+        (text_span
+          (word_token)))
       (link_destination))
     (blank_line)
     (paragraph
@@ -88,7 +96,9 @@ Trailing paragraph.
         (text_span
           (word_token))
         (image
-          (link_label)
+          (link_label
+            (text_span
+              (word_token)))
           (link_destination))
         (text_span
           (word_token))

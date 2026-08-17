@@ -66,13 +66,55 @@ export default grammar({
     entity_reference: ($) => html_entity_regex(),
     numeric_character_reference: ($) => /&#([0-9]{1,7}|[xX][0-9a-fA-F]{1,6});/,
 
+    // Link text between `[` and `]`. Parsed with the same structured inline
+    // elements as ordinary paragraph text (code spans, emphasis, strong,
+    // strikethrough, token classifiers) so labels like [`path/to/file`],
+    // [**bold text**], [InnovAIte] form links. Deliberately narrower than
+    // paragraph text:
+    //  - links (inline/full/collapsed/shortcut) and images are excluded:
+    //    CommonMark §6.3 — "Links may not contain other links, at any level of
+    //    nesting" — so `[a [nested] link](url)` does not become a link.
+    //  - footnote_reference is excluded: `[^1]` must stay a footnote reference
+    //    (the `[^` token outranks the bare `[` at the lexer).
+    //  - `[` and `]` are excluded (see `_label_bracket`), so the label always
+    //    closes at the first unescaped `]`.
     link_label: ($) => seq('[', repeat1(choice(
-      $._text_inline_no_link,
+      $._inline_label_element,
+      $._soft_line_break,
+    )), ']'),
+
+    // One inline element allowed inside a link label.
+    _inline_label_element: ($) => choice(
+      $._whitespace,
+      $.inline_code,
+      $.autolink,
+      $.html_inline,
+      $.mdx_jsx_inline,
+      $.math_inline,
+      $.strong,
+      $.emphasis,
+      $.strikethrough,
       $.backslash_escape,
       $.entity_reference,
       $.numeric_character_reference,
-      $._soft_line_break,
-    )), ']'),
+      alias($._label_text, $.text_span),
+    ),
+
+    // Runs of plain text tokens inside a label. Mirrors paragraph `text_span`
+    // (the same §3.2/§3.3 classifiers) but with square brackets excluded so a
+    // nested `[...]` cannot be swallowed by the label.
+    _label_text: ($) => prec.right(repeat1(choice(
+      $.numeric_token,
+      $.path_like_token,
+      $.identifier_like_token,
+      $.word_token,
+      $.terminator,
+      $.separator,
+      $._label_bracket,
+      $.operator_like,
+    ))),
+    // Bracket punctuation allowed in a label: everything except `[`/`]`.
+    _label_bracket: ($) => alias(choice('(', ')', '{', '}', '<', '>'), $.bracket),
 
     link_destination: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, choice(
       seq('<', repeat(choice($._text_no_angle, $.backslash_escape, $.entity_reference, $.numeric_character_reference)), '>'),

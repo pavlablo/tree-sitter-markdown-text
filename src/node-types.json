@@ -1005,6 +1005,10 @@
       "required": false,
       "types": [
         {
+          "type": "autolink",
+          "named": true
+        },
+        {
           "type": "backslash_escape",
           "named": true
         },
@@ -1013,11 +1017,43 @@
           "named": true
         },
         {
+          "type": "emphasis",
+          "named": true
+        },
+        {
           "type": "entity_reference",
           "named": true
         },
         {
+          "type": "html_inline",
+          "named": true
+        },
+        {
+          "type": "inline_code",
+          "named": true
+        },
+        {
+          "type": "math_inline",
+          "named": true
+        },
+        {
+          "type": "mdx_jsx_inline",
+          "named": true
+        },
+        {
           "type": "numeric_character_reference",
+          "named": true
+        },
+        {
+          "type": "strikethrough",
+          "named": true
+        },
+        {
+          "type": "strong",
+          "named": true
+        },
+        {
+          "type": "text_span",
           "named": true
         }
       ]

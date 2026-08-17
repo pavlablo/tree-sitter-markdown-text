@@ -155,7 +155,9 @@ Trailing paragraph.
           (strikethrough_delimiter)
           (strikethrough_content
             (inline_link
-              (link_label)
+              (link_label
+                (text_span
+                  (word_token)))
               (link_destination))
             (strong
               (strong_delimiter)
@@ -168,7 +170,9 @@ Trailing paragraph.
                 (word_token))
               (emphasis_delimiter))
             (image
-              (link_label)
+              (link_label
+                (text_span
+                  (word_token)))
               (link_destination))
             (html_inline
               (html_open_tag))
@@ -207,10 +211,14 @@ Trailing paragraph.
           (strong_delimiter)
           (strong_content
             (inline_link
-              (link_label)
+              (link_label
+                (text_span
+                  (word_token)))
               (link_destination))
             (image
-              (link_label)
+              (link_label
+                (text_span
+                  (word_token)))
               (link_destination))
             (html_inline
               (html_open_tag))
@@ -249,10 +257,14 @@ Trailing paragraph.
           (emphasis_delimiter)
           (emphasis_content
             (inline_link
-              (link_label)
+              (link_label
+                (text_span
+                  (word_token)))
               (link_destination))
             (image
-              (link_label)
+              (link_label
+                (text_span
+                  (word_token)))
               (link_destination))
             (html_inline
               (html_open_tag))
@@ -438,7 +450,9 @@ Trailing paragraph.
         (text_span
           (word_token))
         (inline_link
-          (link_label)
+          (link_label
+            (text_span
+              (word_token)))
           (link_destination))
         (text_span
           (word_token))
@@ -465,7 +479,9 @@ Trailing paragraph.
         (text_span
           (word_token))
         (image
-          (link_label)
+          (link_label
+            (text_span
+              (word_token)))
           (link_destination))
         (text_span
           (word_token)

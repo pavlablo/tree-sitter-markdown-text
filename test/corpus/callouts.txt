@@ -85,7 +85,10 @@ Trailing paragraph.
       (paragraph
         (inline
           (shortcut_link
-            (link_label))
+            (link_label
+              (text_span
+                (terminator)
+                (word_token))))
           (block_continuation)
           (text_span
             (word_token)))))
