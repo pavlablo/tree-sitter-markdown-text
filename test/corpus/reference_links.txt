@@ -1,0 +1,150 @@
+================================================================================
+Full reference link with a resolving definition
+================================================================================
+[full ref][mylabel]
+
+[mylabel]: https://example.com "Example"
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (full_reference_link
+          (link_label)
+          (link_label))))
+    (blank_line)
+    (link_reference_definition
+      (link_label)
+      (link_destination)
+      (link_title))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Collapsed reference link
+================================================================================
+[collapsed ref][]
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (collapsed_reference_link
+          (link_label))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Shortcut link with a resolving definition
+================================================================================
+[shortcut ref]
+
+[shortcut ref]: https://example.com
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (shortcut_link
+          (link_label))))
+    (blank_line)
+    (link_reference_definition
+      (link_label)
+      (link_destination))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Shortcut link without a resolving definition (resolution is consumer-side)
+================================================================================
+[shortcut ref]
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (shortcut_link
+          (link_label))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Inline link and full reference link in one paragraph
+================================================================================
+[inline](https://example.com "t") and [full][label]
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_link
+          (link_label)
+          (link_destination)
+          (link_title))
+        (text_span
+          (word_token))
+        (full_reference_link
+          (link_label)
+          (link_label))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Image full reference stays a single image node
+================================================================================
+![alt][label]
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (image
+          (link_label)
+          (link_label))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))

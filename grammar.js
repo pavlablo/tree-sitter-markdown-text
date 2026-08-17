@@ -3,7 +3,7 @@
 // Derived from https://github.com/tree-sitter-grammars/tree-sitter-markdown
 // (the `split_parser` branch, `tree-sitter-markdown` block grammar + `common/common.js`),
 // extended with structured inline parsing so consumers can query `(emphasis)`,
-// `(link)`, `(word_token)`, etc. directly under `(inline)`.
+// `(inline_link)`, `(full_reference_link)`, `(collapsed_reference_link)`, `(shortcut_link)`, `(word_token)`, etc. directly under `(inline)`.
 //
 // Covers CommonMark Spec (https://spec.commonmark.org/0.30/) block structure
 // plus the following extensions always enabled:
@@ -22,7 +22,7 @@
 // structured into the nodes required by mehen's Required Markdown AST Model:
 // text_span, word_token, numeric_token, identifier_like_token, path_like_token,
 // terminator, separator, bracket, operator_like, inline_code, emphasis,
-// strong, strikethrough, link, image, autolink, html_inline, mdx_jsx_inline,
+// strong, strikethrough, inline_link, full_reference_link, collapsed_reference_link, shortcut_link, image, autolink, html_inline, mdx_jsx_inline,
 // math_inline, footnote_reference.
 //
 // Known simplifications vs full CommonMark: emphasis/strong use simple paired
@@ -672,7 +672,7 @@ export default grammar({
     // footnote definition body). It emits a sequence of classified tokens
     // (word_token / numeric_token / identifier_like_token / path_like_token
     // and punctuation-class nodes) plus inline structural nodes
-    // (inline_code, emphasis, strong, strikethrough, link, image, autolink,
+    // (inline_code, emphasis, strong, strikethrough, inline_link, full_reference_link, collapsed_reference_link, shortcut_link, image, autolink,
     // html_inline, mdx_jsx_inline, math_inline, footnote_reference).
     //
     // The outer `inline` wrapper is kept so existing queries that match
@@ -697,7 +697,10 @@ export default grammar({
       $.math_inline,
       $.image,
       $.footnote_reference,
-      $.link,
+      $.inline_link,
+      $.full_reference_link,
+      $.collapsed_reference_link,
+      $.shortcut_link,
       $.strong,
       $.emphasis,
       $.strikethrough,
@@ -878,23 +881,31 @@ export default grammar({
       ),
     )),
 
-    // Inline links (including reference forms). Full: [text](dest "title"),
-    // reference: [text][label], shortcut: [label]. The shortcut form is
-    // harmless if the label does not resolve — consumers check against
-    // link_reference_definitions.
-    link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, choice(
-      // Inline link: [text](dest "title")
-      seq($.link_label,
-        '(', optional($._whitespace), optional($.link_destination),
-        optional(seq($._whitespace, $.link_title)),
-        optional($._whitespace), ')'),
-      // Full reference: [text][label]
-      seq($.link_label, $.link_label),
-      // Collapsed reference: [text][]
-      seq($.link_label, '[', ']'),
-      // Shortcut reference: [label] on its own.
+    // Inline links, split into explicit kinds so consumers can distinguish
+    // inline, full-reference, collapsed-reference and shortcut forms directly
+    // (mirrors upstream split_parser, which exposes them as separate node
+    // kinds). Resolution of reference forms against link_reference_definitions
+    // is a consumer concern — the grammar has no way to know whether a label
+    // resolves — so a bare `[text]` always parses as shortcut_link.
+    //
+    //   inline_link              [text](url "title")
+    //   full_reference_link      [text][label]   (adjacent brackets, no space)
+    //   collapsed_reference_link [text][]
+    //   shortcut_link            [text]
+    //
+    // Static precedence on the reference arms (prec(1) vs prec(0)) ensures two
+    // adjacent link_labels collapse into ONE full_reference_link instead of two
+    // separate shortcut_links.
+    inline_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, seq(
       $.link_label,
-    )),
+      '(', optional($._whitespace), optional($.link_destination),
+      optional(seq($._whitespace, $.link_title)),
+      optional($._whitespace), ')')),
+    full_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(1, seq(
+      $.link_label, $.link_label))),
+    collapsed_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, seq(
+      $.link_label, '[', ']')),
+    shortcut_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(0, $.link_label)),
 
     // Strikethrough (GFM): ~~text~~
     strikethrough: ($) => prec.dynamic(1, seq(
@@ -912,7 +923,10 @@ export default grammar({
       $.math_inline,
       $.image,
       $.footnote_reference,
-      $.link,
+      $.inline_link,
+      $.full_reference_link,
+      $.collapsed_reference_link,
+      $.shortcut_link,
       $.strong,
       $.emphasis,
       $.numeric_token,
@@ -949,7 +963,10 @@ export default grammar({
       $.math_inline,
       $.image,
       $.footnote_reference,
-      $.link,
+      $.inline_link,
+      $.full_reference_link,
+      $.collapsed_reference_link,
+      $.shortcut_link,
       $.emphasis,
       $.strikethrough,
       $.numeric_token,
@@ -981,7 +998,10 @@ export default grammar({
       $.math_inline,
       $.image,
       $.footnote_reference,
-      $.link,
+      $.inline_link,
+      $.full_reference_link,
+      $.collapsed_reference_link,
+      $.shortcut_link,
       $.strong,
       $.strikethrough,
       $.numeric_token,
@@ -1161,7 +1181,6 @@ export default grammar({
     [$.link_label, $._callout_marker_open, $.bracket],
     [$.footnote_label, $.bracket],
     [$.footnote_reference, $.bracket],
-    [$.link, $.bracket],
     [$.image, $.bracket],
     [$.autolink, $.bracket],
     [$.html_inline, $.bracket],
@@ -1181,8 +1200,8 @@ export default grammar({
     [$.image_block, $.image],
     [$.link_destination, $.link_title],
     [$._link_destination_parenthesis, $.link_title],
-    [$.link],
-    [$.link_reference_definition, $.link],
+    [$.link_reference_definition, $.shortcut_link],
+    [$.inline_link, $.shortcut_link],
     [$.link_label, $.footnote_label, $.bracket, $.footnote_reference],
     [$.link_label, $.bracket, $.footnote_reference],
     [$.footnote_label, $._text_inline_no_link, $.footnote_reference],

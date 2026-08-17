@@ -154,7 +154,7 @@ Trailing paragraph.
         (strikethrough
           (strikethrough_delimiter)
           (strikethrough_content
-            (link
+            (inline_link
               (link_label)
               (link_destination))
             (strong
@@ -206,7 +206,7 @@ Trailing paragraph.
         (strong
           (strong_delimiter)
           (strong_content
-            (link
+            (inline_link
               (link_label)
               (link_destination))
             (image
@@ -248,7 +248,7 @@ Trailing paragraph.
         (emphasis
           (emphasis_delimiter)
           (emphasis_content
-            (link
+            (inline_link
               (link_label)
               (link_destination))
             (image
@@ -437,7 +437,7 @@ Trailing paragraph.
       (inline
         (text_span
           (word_token))
-        (link
+        (inline_link
           (link_label)
           (link_destination))
         (text_span

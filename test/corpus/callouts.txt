@@ -84,7 +84,7 @@ Trailing paragraph.
       (block_quote_marker)
       (paragraph
         (inline
-          (link
+          (shortcut_link
             (link_label))
           (block_continuation)
           (text_span
