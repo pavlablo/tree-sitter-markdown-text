@@ -1,0 +1,5 @@
+id: shortcut
+language: markdowntext
+severity: hint
+rule:
+  kind: shortcut_link > link_label

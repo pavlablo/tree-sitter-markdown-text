@@ -1,0 +1,7 @@
+id: defs-titled
+language: markdowntext
+severity: hint
+rule:
+  kind: link_reference_definition
+  has:
+    kind: link_title
