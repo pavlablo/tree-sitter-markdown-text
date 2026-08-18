@@ -182,3 +182,111 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+================================================================================
+Collapsed reference image with a resolving definition
+================================================================================
+![alt][]
+
+[alt]: https://example.com/img.jpg
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (image
+          (link_label
+            (text_span
+              (word_token))))))
+    (blank_line)
+    (link_reference_definition
+      (link_label
+        (text_span
+          (word_token)))
+      (link_destination))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Collapsed reference image without a definition (resolution is consumer-side)
+================================================================================
+![alt][]
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (image
+          (link_label
+            (text_span
+              (word_token))))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Shortcut reference image with a resolving definition
+================================================================================
+![alt]
+
+[alt]: https://example.com/img.jpg
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (image
+          (link_label
+            (text_span
+              (word_token))))))
+    (blank_line)
+    (link_reference_definition
+      (link_label
+        (text_span
+          (word_token)))
+      (link_destination))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Shortcut reference image without a definition (resolution is consumer-side)
+================================================================================
+![alt]
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (image
+          (link_label
+            (text_span
+              (word_token))))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))

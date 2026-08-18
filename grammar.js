@@ -908,20 +908,34 @@ export default grammar({
     _footnote_ref_open: ($) => token(prec(2, '[^')),
 
     // Inline images. Reuse link_label and link_destination for the internals.
-    image: ($) => prec.dynamic(PRECEDENCE_LEVEL_IMAGE, seq(
+    // A single `image` kind covers all four forms; the trailing reference part
+    // is optional so a bare `![alt]` degrades to the shortcut form instead of
+    // an ERROR. Resolution of reference labels against
+    // link_reference_definitions is a consumer concern — the grammar has no
+    // way to know whether a label resolves.
+    //
+    //   image  ![alt](url "title")   inline/direct
+    //          ![alt][label]         full reference (adjacent brackets)
+    //          ![alt][]              collapsed reference
+    //          ![alt]                shortcut reference
+    //
+    // The full-reference and collapsed arms get a higher static precedence
+    // than the shortcut fallback so that `![alt][label]` collapses into ONE
+    // image node instead of a shortcut image followed by a separate link.
+    image: ($) => prec.dynamic(PRECEDENCE_LEVEL_IMAGE, prec.right(seq(
       '!',
       $.link_label,
-      choice(
+      optional(choice(
         // inline destination
         seq('(', optional($._whitespace), optional($.link_destination),
           optional(seq($._whitespace, $.link_title)),
           optional($._whitespace), ')'),
         // full reference: ![alt][label]
-        $.link_label,
-        // Shortcut (`![alt]`) and collapsed (`![alt][]`) image references are
-        // intentionally unsupported by this simplified image rule.
-      ),
-    )),
+        prec(1, $.link_label),
+        // collapsed reference: ![alt][]
+        prec(1, seq('[', ']')),
+      )),
+    ))),
 
     // Inline links, split into explicit kinds so consumers can distinguish
     // inline, full-reference, collapsed-reference and shortcut forms directly
