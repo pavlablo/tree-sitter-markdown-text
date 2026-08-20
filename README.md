@@ -23,6 +23,17 @@ A grammar that surfaces those distinctions natively is faster, more accurate, an
 - AI-assisted documentation review &mdash; structural signals (filler density, evidence coverage, repository grounding) work better than authorship classifiers,
 - any tool that needs to walk Markdown the way a compiler walks source code, not the way an editor highlights it.
 
+## Fork status and patches on top of upstream
+
+This grammar is a **fork** of [tree-sitter-grammars/tree-sitter-markdown](https://github.com/tree-sitter-grammars/tree-sitter-markdown), specifically derived from the **`split_parser`** branch's block grammar (see [Credits](#credits-and-references)). The block-level parsing, the `inline` wrapper, and the textlint `TxtNode` alignment all come from upstream. On top of that upstream base, this fork adds:
+
+- **Four explicit link kinds.** The single `link` node is split into `inline_link`, `full_reference_link`, `collapsed_reference_link`, and `shortcut_link`, so a consumer can tell link syntax apart without re-tokenizing the source.
+- **Structural content inside link labels.** `link_label` children are parsed into structured inline nodes (code spans, emphasis/strong, autolinks, etc.) instead of opaque text.
+- **All image reference forms.** Images support the same four forms as links &mdash; `![alt](dest)` inline, `![alt][label]` full reference, `![alt][]` collapsed reference, `![alt]` shortcut reference &mdash; plus a block-level `image_block` for a standalone image paragraph.
+- **A reference-style link resolver layer** in [`tools/link-resolver`](tools/link-resolver/) that consumes the parse tree (via ast-grep custom-language scanning) and resolves reference links against `link_reference_definition`s per CommonMark normalization rules. It is a post-processing tool, not part of the grammar.
+
+These additions are surfaced as new kinds in `src/node-types.json`; see the [Node kind reference](#node-kind-reference) below.
+
 ## Features
 
 ### Block nodes
@@ -49,7 +60,7 @@ A grammar that surfaces those distinctions natively is faster, more accurate, an
 - **Punctuation classes** &mdash; every punctuation lexeme is classified: `terminator` (`.`, `?`, `!`, `。`, `…`), `separator` (`,`, `;`, `:`), `bracket` (`(`, `)`, `[`, `]`, `{`, `}`, `<`, `>`), `operator_like` (`::`, `->`, `=>`, `=`, `+`, `-`, `*`, `/`, `|`, `&`, and other punctuation).
 - **Emphasis / strong / strikethrough** &mdash; `emphasis` (`*…*` or `_…_`), `strong` (`**…**` or `__…__`), `strikethrough` (`~~…~~`), each with a `_delimiter`/`_content`/`_delimiter` sub-tree.
 - **Code spans** &mdash; `inline_code` with matched backtick-run delimiters (1 or 2 backticks).
-- **Links and images** &mdash; `link` (inline, full-reference, collapsed-reference, shortcut-reference forms) and `image` (`![alt](dest)` or `![alt][ref]`). Both expose `link_label`/`link_destination`/`link_title` children.
+- **Links and images** &mdash; `link` (inline, full-reference, collapsed-reference, shortcut-reference forms) and `image` (`![alt](dest)` or `![alt][ref]`). Both expose `link_label`/`link_destination`/`link_title` children. See the [node kind reference](#node-kind-reference) for the exact per-form kinds.
 - **Autolinks** &mdash; `autolink` with `uri` or `email` children for `<https://…>` and `<user@example.com>`.
 - **Raw HTML inline** &mdash; `html_inline` with `html_open_tag`/`html_close_tag`/`html_comment`/`html_cdata`/`html_declaration`/`html_processing_instruction` children.
 - **MDX JSX inline** &mdash; shallow `mdx_jsx_inline` with `mdx_jsx_open_tag`/`mdx_jsx_close_tag`/`mdx_jsx_expression` children.
@@ -99,6 +110,43 @@ The grammar is structurally close to the textlint AST. Every block-level `TxtNod
 
 ## Installation
 
+### Installing as a git dependency (recommended for consumer projects)
+
+The most common way to consume this grammar from another project is as an npm
+git dependency. Point at the fork and **pin a specific commit SHA or tag**:
+
+```sh
+npm install git+https://github.com/pavlablo/tree-sitter-markdown-text.git#v1.0.0
+```
+
+or, equivalently, pin by full commit SHA:
+
+```sh
+npm install git+https://github.com/pavlablo/tree-sitter-markdown-text.git#5fbc3b567e1631f629b4f8c61cac90eeec22315a
+```
+
+**Why pin a SHA or tag instead of `#main`?**
+
+- **Reproducible builds.** A floating ref like `#main` resolves to whatever is
+  on the branch the day the dependency is (re)installed. Two developers &mdash;
+  or one CI run and a local machine &mdash; can silently end up with different
+  parser versions locked in different `package-lock.json` snapshots, and a fresh
+  `npm install` on a clean checkout can pull a newer, behaviorally different
+  grammar than the one the code was written against.
+- **Protection from future upstream changes.** This is a fork that will keep
+  evolving. Pinning a SHA or a tag makes the grammar a *fixed contract*: the AST
+  kinds and fields your rules depend on will not change under you. `#main` gives
+  you none of that guarantee.
+- **A tag is as immutable as a SHA but readable.** `v1.0.0` is easy to grep in
+  lockfiles and to reason about in PRs, yet it still resolves to one exact
+  commit. Treat tags published here as "do not move" contracts. (`git tag -f`
+  can re-point a tag, so a tag is only as stable as its maintainer's discipline
+  &mdash; a full commit SHA is the strongest possible guarantee.)
+
+The `install` script of the package compiles the native Node binding via
+`node-gyp-build`, and the npm tarball includes `src/` (the C parser source), so
+a working C toolchain is all that is required beyond npm itself.
+
 ### npm
 
 ```sh
@@ -131,6 +179,147 @@ import markdown "github.com/ophidiarium/tree-sitter-markdown-text"
 lang := markdown.GetLanguage()
 query, _ := markdown.GetHighlightsQuery()
 ```
+
+> The `Go` and registry (npm/Cargo/PyPI) examples above are the *published
+> bindings* of the upstream package. If you consume the fork directly, prefer
+> the git-dependency form from the previous section and build the shared
+> library yourself as described below.
+
+## Building the shared library (`markdown-text.so`) from source
+
+Any consumer that loads the grammar as a dynamically-linked library (notably
+[ast-grep custom languages](#using-with-ast-grep)) needs a `.so`/`.dylib`/`.dll`
+built from the parser sources. The npm git dependency ships `src/parser.c`,
+`src/scanner.c`, and the `src/tree_sitter/` headers, so the only external
+requirement is a C compiler.
+
+This repository ships ready-made build scripts. Two options:
+
+**Option 1 — the repository's own `Makefile`** (works on Linux/macOS):
+
+```sh
+make            # produces libtree-sitter-markdown-text.so (and .a, .pc)
+make clean
+```
+
+**Option 2 — the tree-sitter CLI** (also produces the grammar's language symbol):
+
+```sh
+tree-sitter build --output markdown-text.so
+```
+
+**Minimal universal fallback** (no Makefile, no tree-sitter CLI &mdash; just a
+C compiler, e.g. `gcc`/`cc`/`clang`):
+
+```sh
+cc -shared -fPIC -O2 -Isrc -o markdown-text.so src/parser.c src/scanner.c
+```
+
+All three routes export the grammar's language entry point as
+`tree_sitter_markdown` (the grammar name is `markdown`, per `tree-sitter.json`).
+
+## Using with ast-grep
+
+### Registering as a custom language in `sgconfig.yml`
+
+Once the `.so` is built (see above), register it in the `customLanguages`
+section of any ast-grep project's `sgconfig.yml`. Minimal working example:
+
+```yaml
+# sgconfig.yml
+ruleDirs:
+  - ./rules
+customLanguages:
+  markdown:
+    libraryPath: ./vendor/markdown-text.so   # relative to sgconfig.yml, or absolute
+    extensions: [md, markdown, mdown, mkd, mkdn]
+    expandoChar: _                           # optional: replaces '$' in patterns
+```
+
+The custom-language key (`markdown` above) is used to look up the loader symbol.
+By default ast-grep loads `tree_sitter_<name>`, so `markdown` matches the
+`tree_sitter_markdown` symbol this grammar exports. If you prefer a different
+key (e.g. to avoid clashing with ast-grep's built-in Markdown), set
+`languageSymbol` explicitly:
+
+```yaml
+customLanguages:
+  markdownText:
+    libraryPath: ./vendor/markdown-text.so
+    extensions: [md]
+    languageSymbol: tree_sitter_markdown
+```
+
+Then rules can target the grammar's kinds, e.g.:
+
+```yaml
+id: no-broken-shortcut-links
+language: markdown
+severity: warning
+rule:
+  kind: shortcut_link
+```
+
+See the official [ast-grep custom-language
+guide](https://ast-grep.github.io/advanced/custom-language.html) for the full
+option list (`outlineRules`, per-platform `libraryPath` maps, etc.).
+
+### Node kind reference
+
+Exact kinds this grammar produces, taken verbatim from `src/node-types.json`.
+Use them as `kind:` selectors in ast-grep rules (or as node names in any
+tree-sitter consumer). Anonymous punctuation/lexemes (`*`, `**`, `` ` ``, `~~`,
+`[`, `]`, …) are omitted here; the full list lives in `src/node-types.json`.
+
+**Links** — the four explicit reference kinds (this fork's addition), plus
+autolinks and reference definitions:
+
+| kind | meaning | children |
+|---|---|---|
+| `inline_link` | `[text](dest "title")` | `link_label`, `link_destination`, `link_title` |
+| `full_reference_link` | `[text][label]` | `link_label` |
+| `collapsed_reference_link` | `[text][]` | `link_label` |
+| `shortcut_link` | `[label]` (bare) | `link_label` |
+| `autolink` | `<https://…>` / `<user@…>` | `uri`, `email` |
+| `link_reference_definition` | `[label]: dest "title"` | `link_label`, `link_destination`, `link_title` |
+
+**Images** — all four reference forms collapse into one `image` node, plus the
+block-level form:
+
+| kind | meaning | children |
+|---|---|---|
+| `image` | `![alt](dest)`, `![alt][label]`, `![alt][]`, `![alt]` | `link_label`, `link_destination`, `link_title` |
+| `image_block` | standalone block-level image paragraph | `link_label`, `link_destination` |
+
+**Code blocks / code spans:**
+
+| kind | meaning | children |
+|---|---|---|
+| `fenced_code_block` | ```` ```lang … ``` ```` / `~~~` | `fenced_code_block_delimiter`, `info_string`, `code_fence_content`, `block_continuation` |
+| `indented_code_block` | 4-space-indented block | `blank_line`, `block_continuation` |
+| `inline_code` | `` `code` `` / ` ``code`` ` | `inline_code_delimiter`, `inline_code_content` |
+| `info_string` / `language` | fence language tag | &mdash; |
+
+**Shared link part nodes:**
+
+| kind | meaning |
+|---|---|
+| `link_label` | the `[...]` label text; **children are parsed structurally** (this fork's addition): `text_span`, `emphasis`, `strong`, `strikethrough`, `inline_code`, `autolink`, `html_inline`, `math_inline`, `mdx_jsx_inline`, `backslash_escape`, `entity_reference`, `numeric_character_reference` |
+| `link_destination` | the destination (`(dest)` or `label` target) |
+| `link_title` | the optional `"title"` |
+
+**Other kinds** (block & inline) you may want as selectors: `document`,
+`section`, `paragraph`, `blank_line`, `atx_heading`/`setext_heading` (with
+`level:` field), `block_quote`, `callout` (+ `callout_type`), `list`,
+`list_item`, `task_list_item`, `thematic_break`, `pipe_table` (+
+`pipe_table_header`/`pipe_table_row`/`pipe_table_cell`), `html_block`,
+`html_comment_block`, `mdx_jsx_block`, `directive_block`, `footnote_definition`,
+`footnote_reference`, `minus_metadata`/`plus_metadata`, `math_block`/
+`math_inline`, `inline` (the structured wrapper: `text_span`, `word_token`,
+`numeric_token`, `identifier_like_token`, `path_like_token`, `terminator`,
+`separator`, `bracket`, `operator_like`, `emphasis`, `strong`,
+`strikethrough`, `inline_code`, `html_inline`, `mdx_jsx_inline`,
+`footnote_reference`).
 
 ## Usage
 
