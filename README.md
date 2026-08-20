@@ -193,9 +193,12 @@ built from the parser sources. The npm git dependency ships `src/parser.c`,
 `src/scanner.c`, and the `src/tree_sitter/` headers, so the only external
 requirement is a C compiler.
 
-This repository ships ready-made build scripts. Two options:
+Since the npm tarball ships only the sources, the tree-sitter CLI and the
+universal `cc` command work directly in the installed package; the
+`Makefile` route requires a clone of this repository &mdash; the `Makefile`
+is not part of the npm tarball. Three options:
 
-**Option 1 — the repository's own `Makefile`** (works on Linux/macOS):
+**Option 1 — the repository's own `Makefile`** (works on Linux/macOS, from a clone of this repository):
 
 ```sh
 make            # produces libtree-sitter-markdown-text.so (and .a, .pc)
@@ -223,42 +226,61 @@ All three routes export the grammar's language entry point as
 ### Registering as a custom language in `sgconfig.yml`
 
 Once the `.so` is built (see above), register it in the `customLanguages`
-section of any ast-grep project's `sgconfig.yml`. Minimal working example:
+section of any ast-grep project's `sgconfig.yml`.
+
+> **Don't name the custom language `markdown`.** ast-grep ≥0.43 ships a
+> built-in Markdown language, and a custom language registered under the same
+> key silently shadows it: rules that target this grammar's kinds then fail
+> with `Invalid Kind` (`inline_link`, `shortcut_link`, `image`, …), and kinds
+> that overlap with the built-in grammar (`paragraph`, `inline`, `atx_heading`,
+> `section`) are matched against the *built-in* parse tree instead of this one.
+> Register under a distinct key and point `languageSymbol` at the exported
+> symbol. (Verified on ast-grep 0.45.)
+
+Minimal working example (recommended):
 
 ```yaml
 # sgconfig.yml
 ruleDirs:
   - ./rules
 customLanguages:
-  markdown:
+  markdownText:
     libraryPath: ./vendor/markdown-text.so   # relative to sgconfig.yml, or absolute
     extensions: [md, markdown, mdown, mkd, mkdn]
-    expandoChar: _                           # optional: replaces '$' in patterns
+    languageSymbol: tree_sitter_markdown      # symbol exported by this grammar
+    expandoChar: _                            # optional: replaces '$' in patterns
 ```
 
-The custom-language key (`markdown` above) is used to look up the loader symbol.
-By default ast-grep loads `tree_sitter_<name>`, so `markdown` matches the
-`tree_sitter_markdown` symbol this grammar exports. If you prefer a different
-key (e.g. to avoid clashing with ast-grep's built-in Markdown), set
-`languageSymbol` explicitly:
-
-```yaml
-customLanguages:
-  markdownText:
-    libraryPath: ./vendor/markdown-text.so
-    extensions: [md]
-    languageSymbol: tree_sitter_markdown
-```
+`languageSymbol` names the loader symbol this grammar exports
+(`tree_sitter_markdown`, per `tree-sitter.json`). The custom-language key
+(`markdownText` above) is arbitrary and only labels the language in rules, so
+keep it distinct from built-in language names.
 
 Then rules can target the grammar's kinds, e.g.:
 
 ```yaml
 id: no-broken-shortcut-links
-language: markdown
+language: markdownText
 severity: warning
 rule:
   kind: shortcut_link
 ```
+
+**Not recommended: naming the language `markdown`.** On ast-grep builds without
+a built-in Markdown language, default symbol inference would load
+`tree_sitter_markdown` from the `.so` and this would work:
+
+```yaml
+customLanguages:
+  markdown:
+    libraryPath: ./vendor/markdown-text.so
+    extensions: [md, markdown, mdown, mkd, mkdn]
+    expandoChar: _
+```
+
+But on ast-grep ≥0.43 this key conflicts with the built-in Markdown support
+(see the warning above), so prefer the `markdownText` form unless you have
+confirmed your ast-grep build has no built-in Markdown language.
 
 See the official [ast-grep custom-language
 guide](https://ast-grep.github.io/advanced/custom-language.html) for the full
