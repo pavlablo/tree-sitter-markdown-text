@@ -4,6 +4,18 @@ Markdown grammar for [tree-sitter](https://github.com/tree-sitter/tree-sitter), 
 
 Parses `.md` (and `.markdown`, `.mdown`, `.mkd`, `.mkdn`) files into a concrete syntax tree covering the full CommonMark block structure plus common extensions (GFM pipe tables, task lists, GFM alerts, YAML/TOML front matter, Pandoc math and directive blocks, footnotes, MDX JSX). Inline content is surfaced as structured children of the `inline` wrapper: classified tokens (`word_token`, `numeric_token`, `identifier_like_token`, `path_like_token`) and punctuation-class nodes (`terminator`, `separator`, `bracket`, `operator_like`), plus inline structural nodes (`emphasis`, `strong`, `strikethrough`, `link`, `image`, `autolink`, `inline_code`, `html_inline`, `math_inline`, `mdx_jsx_inline`, `footnote_reference`).
 
+## Why this fork?
+
+The upstream grammar is built for **syntax highlighting**: its `inline` wrapper is one opaque text run, and prose-level structure is left for the consumer to reconstruct with regex. This fork exists because **Rea Skills** needs to **reason about prose**, not colorize it: tell `path_like_token` from `identifier_like_token` from `word_token`, classify every link into its four reference forms, and see tables / math / front-matter / MDX as first-class nodes, all **without re-tokenizing**.
+
+That single goal drives every departure from upstream in this repo, and it's non-negotiable:
+
+- **Structured `inline` children** (`text_span`, `word_token`, `path_like_token`, `terminator`, `separator`, …) are the whole point. If an edit ever collapses the `inline` wrapper back into an opaque text run, the fork has lost its reason to exist.
+- **Explicit link kinds** (`inline_link`, `full_reference_link`, `collapsed_reference_link`, `shortcut_link`) exist so Rea Skills can classify links in a single pass.
+- **Everything else** (pipe tables, math blocks, front matter, directive blocks, `html_comment_block`, `blank_line`, `level` fields) serves the same principle: *the AST must tell you what a token is without re-parsing the source*.
+
+Keep this in mind when extending the grammar: the fork's value is the **shape of the AST**, not merely that it parses Markdown.
+
 ## Why another Markdown grammar?
 
 Existing tree-sitter Markdown grammars are optimized for syntax highlighting and editor tooling: the `inline` wrapper is opaque, every word is one big text run, and prose-level structure is something the consumer is expected to reconstruct with regex. That works for colorizing a file in a code editor, but it falls apart the moment you want to *reason about prose*.
