@@ -1,0 +1,5 @@
+id: collapsed
+language: markdowntext
+severity: hint
+rule:
+  kind: collapsed_reference_link > link_label

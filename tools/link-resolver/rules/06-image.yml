@@ -1,0 +1,5 @@
+id: image
+language: markdowntext
+severity: hint
+rule:
+  kind: image > link_label:nth-child(2)

@@ -154,8 +154,10 @@ Trailing paragraph.
         (strikethrough
           (strikethrough_delimiter)
           (strikethrough_content
-            (link
-              (link_label)
+            (inline_link
+              (link_label
+                (text_span
+                  (word_token)))
               (link_destination))
             (strong
               (strong_delimiter)
@@ -168,7 +170,9 @@ Trailing paragraph.
                 (word_token))
               (emphasis_delimiter))
             (image
-              (link_label)
+              (link_label
+                (text_span
+                  (word_token)))
               (link_destination))
             (html_inline
               (html_open_tag))
@@ -206,11 +210,15 @@ Trailing paragraph.
         (strong
           (strong_delimiter)
           (strong_content
-            (link
-              (link_label)
+            (inline_link
+              (link_label
+                (text_span
+                  (word_token)))
               (link_destination))
             (image
-              (link_label)
+              (link_label
+                (text_span
+                  (word_token)))
               (link_destination))
             (html_inline
               (html_open_tag))
@@ -248,11 +256,15 @@ Trailing paragraph.
         (emphasis
           (emphasis_delimiter)
           (emphasis_content
-            (link
-              (link_label)
+            (inline_link
+              (link_label
+                (text_span
+                  (word_token)))
               (link_destination))
             (image
-              (link_label)
+              (link_label
+                (text_span
+                  (word_token)))
               (link_destination))
             (html_inline
               (html_open_tag))
@@ -437,8 +449,10 @@ Trailing paragraph.
       (inline
         (text_span
           (word_token))
-        (link
-          (link_label)
+        (inline_link
+          (link_label
+            (text_span
+              (word_token)))
           (link_destination))
         (text_span
           (word_token))
@@ -465,7 +479,9 @@ Trailing paragraph.
         (text_span
           (word_token))
         (image
-          (link_label)
+          (link_label
+            (text_span
+              (word_token)))
           (link_destination))
         (text_span
           (word_token)

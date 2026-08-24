@@ -1,0 +1,5 @@
+id: defs
+language: markdowntext
+severity: hint
+rule:
+  kind: link_reference_definition

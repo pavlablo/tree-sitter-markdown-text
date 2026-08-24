@@ -1,0 +1,5 @@
+id: fullref
+language: markdowntext
+severity: hint
+rule:
+  kind: full_reference_link > link_label:nth-child(2)

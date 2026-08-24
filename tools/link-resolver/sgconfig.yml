@@ -1,0 +1,7 @@
+ruleDirs:
+- rules
+customLanguages:
+  markdowntext:
+    libraryPath: libtree-sitter-markdown.so
+    extensions: [md]
+    languageSymbol: tree_sitter_markdown

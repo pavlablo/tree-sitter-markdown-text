@@ -157,8 +157,10 @@ Trailing paragraph.
         (list_marker_minus)
         (paragraph
           (inline
-            (link
-              (link_label))
+            (shortcut_link
+              (link_label
+                (text_span
+                  (word_token))))
             (text_span
               (word_token))
             (text_span

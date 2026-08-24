@@ -8,7 +8,9 @@ Trailing paragraph.
 (document
   (section
     (link_reference_definition
-      (link_label)
+      (link_label
+        (text_span
+          (word_token)))
       (link_destination)
       (link_title))
     (paragraph

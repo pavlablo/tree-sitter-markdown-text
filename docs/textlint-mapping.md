@@ -37,8 +37,8 @@ This grammar's node types are close to — but not byte-identical with — the t
 | `Strong` | `strong` | `strong` | `**…**` or `__…__`. |
 | `Delete` | `delete` | `strikethrough` | GFM `~~…~~`. |
 | `Code` (`inlineCode`) | `inlineCode` | `inline_code` | Single or double backtick runs. |
-| `Link` | `link` | `link` | Inline, full-reference, collapsed-reference, and shortcut-reference forms. |
-| `LinkReference` | `linkReference` | `link` | Same node; shape distinguishes inline vs reference forms. |
+| `Link` | `link` | `inline_link` / `full_reference_link` / `collapsed_reference_link` / `shortcut_link` | Inline, full-reference, collapsed-reference, and shortcut-reference forms, exposed as four distinct node kinds. |
+| `LinkReference` | `linkReference` | `full_reference_link` / `collapsed_reference_link` / `shortcut_link` | Reference forms are distinct kinds; whether a label resolves against a `link_reference_definition` is decided by consumers, not the grammar. |
 | `Image` | `image` | `image` | Inline images inside prose (distinct from `image_block`). |
 | `ImageReference` | `imageReference` | `image` | |
 | *(autolink)* | *(autolink)* | `autolink` | `<…>` with `uri` or `email` child. |

@@ -1,0 +1,200 @@
+================================================================================
+Inline code inside link label
+================================================================================
+[`path/to/file`](url)
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_link
+          (link_label
+            (inline_code
+              (inline_code_delimiter)
+              (inline_code_content)
+              (inline_code_delimiter)))
+          (link_destination))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Strong inside link label
+================================================================================
+[**bold text**](url)
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_link
+          (link_label
+            (strong
+              (strong_delimiter)
+              (strong_content
+                (word_token)
+                (word_token))
+              (strong_delimiter)))
+          (link_destination))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Emphasis inside link label
+================================================================================
+[*emphasized*](url)
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_link
+          (link_label
+            (emphasis
+              (emphasis_delimiter)
+              (emphasis_content
+                (word_token))
+              (emphasis_delimiter)))
+          (link_destination))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Identifier-like token inside link label
+================================================================================
+[InnovAIte](url)
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_link
+          (link_label
+            (text_span
+              (identifier_like_token)))
+          (link_destination))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Plain text inside link label
+================================================================================
+[normal simple text](url)
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_link
+          (link_label
+            (text_span
+              (word_token))
+            (text_span
+              (word_token))
+            (text_span
+              (word_token)))
+          (link_destination))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Footnote reference is not mistaken for a link label
+================================================================================
+[^1](url)
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (footnote_reference
+          (footnote_reference_open)
+          (footnote_reference_label))
+        (text_span
+          (bracket)
+          (word_token)
+          (bracket))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Nested shortcut link breaks the outer label
+================================================================================
+[a [nested] link](url)
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (bracket)
+          (word_token))
+        (shortcut_link
+          (link_label
+            (text_span
+              (word_token))))
+        (text_span
+          (word_token)
+          (bracket)
+          (bracket)
+          (word_token)
+          (bracket))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Nested inline link wins over the outer label
+================================================================================
+[foo [bar](/uri)](/uri)
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (bracket)
+          (word_token))
+        (inline_link
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))
+        (text_span
+          (bracket)
+          (bracket)
+          (operator_like)
+          (word_token)
+          (bracket))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
