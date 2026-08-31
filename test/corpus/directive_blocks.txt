@@ -66,3 +66,59 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+================================================================================
+Unclosed directive block followed by heading
+================================================================================
+:::note
+content
+# heading
+more
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like)
+          (separator)
+          (word_token))
+        (text_span
+          (word_token)))))
+  (section
+    (atx_heading
+      (atx_h1_marker)
+      (inline
+        (text_span
+          (word_token))))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Unclosed directive block alone degrades to text
+================================================================================
+:::
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like)
+          (separator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))

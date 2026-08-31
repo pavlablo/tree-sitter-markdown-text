@@ -97,3 +97,56 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+================================================================================
+Unclosed dollar-dollar followed by heading
+================================================================================
+$$
+content
+# heading
+more
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like))
+        (text_span
+          (word_token)))))
+  (section
+    (atx_heading
+      level: (atx_h1_marker)
+      heading_content: (inline
+        (text_span
+          (word_token))))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Unclosed dollar-dollar alone degrades to text
+================================================================================
+$$
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))

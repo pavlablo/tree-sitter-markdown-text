@@ -427,37 +427,43 @@ export default grammar({
     //   $$
     //   formula
     //   $$
-    // Pure grammar implementation: the opening `$$` and closing `$$` are each
-    // required to sit alone on their own line. The literal `$$` token (two
-    // adjacent `$` characters) beats the single `$` punctuation that would
-    // otherwise be consumed by `_line` because tree-sitter prefers the longer
-    // token at a given lex position.
+    // The opening `$$` and closing `$$` are external scanner tokens
+    // (MATH_BLOCK_OPEN/CLOSE_DELIMITER) carrying a closing-delimiter lookahead
+    // check in the scanner (has_closing_delimiter).  The opening `$$` is
+    // required to sit alone on its own line; an unclosed `$$` degrades to
+    // ordinary text instead of swallowing the rest of the document.
     math_block: ($) => prec.dynamic(PRECEDENCE_LEVEL_MATH_BLOCK, seq(
-      alias($._math_block_delimiter, $.math_block_delimiter),
+      alias($._math_block_open, $.math_block_delimiter),
       $._newline,
       optional($.math_block_content),
-      alias($._math_block_delimiter, $.math_block_delimiter),
+      alias($._math_block_close, $.math_block_delimiter),
       choice($._newline, $._eof),
     )),
-    _math_block_delimiter: ($) => token(prec(4, '$$')),
+    // _math_block_open / _math_block_close are external scanner tokens
+    // (MATH_BLOCK_OPEN_DELIMITER/MATH_BLOCK_CLOSE_DELIMITER).  A run of
+    // EXACTLY two `$` is the delimiter; `$$$` is not a math-block delimiter.
     math_block_content: ($) => prec.right(repeat1(choice($._line, $._newline))),
 
     // A directive block (`:::name ... :::`). Implemented following the syntax
     // used by remark-directive / MyST / Pandoc fenced divs: a line opening
-    // with three or more colons followed by an optional name, content lines,
-    // then a matching closing line of colons. For simplicity the opening and
-    // closing use a fixed `:::` literal; longer runs fall back to the
-    // paragraph rule.
+    // with exactly three colons followed by an optional name, content lines,
+    // then a matching closing line of colons. The opening and closing are
+    // external scanner tokens (`_directive_block_open` / `_directive_block_close`)
+    // carrying a closing-delimiter lookahead check in the scanner
+    // (has_closing_delimiter); an unclosed `:::` degrades to ordinary text
+    // instead of swallowing the rest of the document.
     directive_block: ($) => prec.dynamic(PRECEDENCE_LEVEL_DIRECTIVE_BLOCK, seq(
-      alias($._directive_block_delimiter, $.directive_block_delimiter),
+      alias($._directive_block_open, $.directive_block_delimiter),
       optional($._whitespace),
       optional($.directive_name),
       $._newline,
       optional($.directive_block_content),
-      alias($._directive_block_delimiter, $.directive_block_delimiter),
+      alias($._directive_block_close, $.directive_block_delimiter),
       choice($._newline, $._eof),
     )),
-    _directive_block_delimiter: ($) => ':::',
+    // _directive_block_open / _directive_block_close are external scanner
+    // tokens (DIRECTIVE_BLOCK_OPEN/CLOSE_DELIMITER).  A run of EXACTLY three
+    // colons is the delimiter; `::::` is not a directive delimiter.
     directive_name: ($) => prec.right(repeat1(choice(
       $._word,
       punctuation_without($, [':']),
@@ -831,26 +837,43 @@ export default grammar({
     // Inline code. Supports delimiter runs of 1 or 2 backticks. The content
     // is everything up to the matching run of the same length. A full
     // CommonMark implementation handles arbitrarily long runs; two cases
-    // cover the overwhelming majority of real documents.
+    // cover the overwhelming majority of real documents.  The delimiters are
+    // external scanner tokens: an OPEN is only emitted when a matching closer
+    // run exists before the next block boundary, so an unclosed backtick
+    // degrades to ordinary text instead of a runaway ERROR.
     inline_code: ($) => choice(
       seq(
-        alias($._backtick_1, $.inline_code_delimiter),
+        alias($._inline_code_backtick_1_open, $.inline_code_delimiter),
         optional(alias(/[^`\n\r]+/, $.inline_code_content)),
-        alias($._backtick_1, $.inline_code_delimiter),
+        alias($._inline_code_backtick_1_close, $.inline_code_delimiter),
       ),
       seq(
-        alias($._backtick_2, $.inline_code_delimiter),
+        alias($._inline_code_backtick_2_open, $.inline_code_delimiter),
         optional(alias(/([^`\n\r]|`[^`\n\r])+/, $.inline_code_content)),
-        alias($._backtick_2, $.inline_code_delimiter),
+        alias($._inline_code_backtick_2_close, $.inline_code_delimiter),
       ),
     ),
-    _backtick_1: ($) => token(prec(1, '`')),
-    _backtick_2: ($) => token(prec(2, '``')),
 
-    // Autolinks: <scheme:rest> and <email@host>.
+    // Autolinks: <scheme:rest> and <email@host>.  The external scanner token
+    // (_autolink_open) is a GATE: it emits ONLY the opening `<`, and only
+    // after validating ahead that the whole `<...>` is a well-formed URI or
+    // email closed by `>` on the same line.  The content is then re-parsed by
+    // ordinary grammar rules here into named `uri` / `email` children.  This
+    // preserves the bug fix (an unclosed `<` degrades to text, never a
+    // runaway ERROR) while keeping the structured `uri`/`email` nodes that
+    // downstream ast-grep rules (rea-skills `kind: uri` / `kind: email`)
+    // depend on.
     autolink: ($) => choice(
-      seq('<', alias(/[A-Za-z][A-Za-z0-9+.\-]{1,31}:[^<> \t\n\r]+/, $.uri), '>'),
-      seq('<', alias(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+(\.[A-Za-z0-9\-]+)+/, $.email), '>'),
+      seq(
+        $._autolink_open,
+        alias(/[A-Za-z][A-Za-z0-9+.\-]{1,31}:[^<> \t\n\r]+/, $.uri),
+        '>',
+      ),
+      seq(
+        $._autolink_open,
+        alias(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+(\.[A-Za-z0-9\-]+)+/, $.email),
+        '>',
+      ),
     ),
 
     // Raw HTML spans: opening tag, closing tag, self-closing, comment,
@@ -895,8 +918,9 @@ export default grammar({
     _math_inline_content: ($) => new RustRegex('[^$\\s\\n\\r](?:[^$\\n\\r]*[^$\\s\\n\\r])?'),
 
     // Footnote reference [^id]. Distinct from footnote_definition which has
-    // `:` immediately after the label. Uses a combined `[^` token to beat
-    // the `[` bracket in the inline-content lexer context.
+    // `:` immediately after the label. Uses a combined `[^` external scanner
+    // token (gated on a closing `]`) to beat the `[` bracket in the
+    // inline-content lexer context and to avoid a runaway ERROR when unclosed.
     footnote_reference: ($) => seq(
       alias($._footnote_ref_open, $.footnote_reference_open),
       alias(repeat1(choice(
@@ -905,7 +929,6 @@ export default grammar({
       )), $.footnote_reference_label),
       ']',
     ),
-    _footnote_ref_open: ($) => token(prec(2, '[^')),
 
     // Inline images. Reuse link_label and link_destination for the internals.
     // A single `image` kind covers all four forms; the trailing reference part
@@ -965,11 +988,13 @@ export default grammar({
 
     // Strikethrough (GFM): ~~text~~
     strikethrough: ($) => prec.dynamic(1, seq(
-      alias($._strikethrough_delimiter, $.strikethrough_delimiter),
+      alias($._strikethrough_open, $.strikethrough_delimiter),
       alias(repeat1($._inline_no_strikethrough), $.strikethrough_content),
-      alias($._strikethrough_delimiter, $.strikethrough_delimiter),
+      alias($._strikethrough_close, $.strikethrough_delimiter),
     )),
-    _strikethrough_delimiter: ($) => token(prec(2, '~~')),
+    // _strikethrough_open / _strikethrough_close are external scanner tokens
+    // (STRIKETHROUGH_OPEN/CLOSE) carrying a closing-delimiter lookahead check
+    // in the scanner (has_closing_delimiter).
     _inline_no_strikethrough: ($) => choice(
       $._whitespace,
       $.inline_code,
@@ -1001,15 +1026,13 @@ export default grammar({
     // left/right-flanking rules are not reproduced; intraword `_` and
     // ambiguous cases may parse differently from a spec-strict parser.
     strong: ($) => prec.dynamic(2, choice(
-      seq(alias($._strong_star_delim, $.strong_delimiter),
+      seq(alias($._strong_star_open, $.strong_delimiter),
         alias(repeat1($._inline_no_strong), $.strong_content),
-        alias($._strong_star_delim, $.strong_delimiter)),
-      seq(alias($._strong_under_delim, $.strong_delimiter),
+        alias($._strong_star_close, $.strong_delimiter)),
+      seq(alias($._strong_under_open, $.strong_delimiter),
         alias(repeat1($._inline_no_strong), $.strong_content),
-        alias($._strong_under_delim, $.strong_delimiter)),
+        alias($._strong_under_close, $.strong_delimiter)),
     )),
-    _strong_star_delim: ($) => token(prec(3, '**')),
-    _strong_under_delim: ($) => token(prec(3, '__')),
     _inline_no_strong: ($) => choice(
       $._whitespace,
       $.inline_code,
@@ -1036,15 +1059,17 @@ export default grammar({
     ),
 
     emphasis: ($) => prec.dynamic(1, choice(
-      seq(alias($._emphasis_star_delim, $.emphasis_delimiter),
+      seq(alias($._emphasis_star_open, $.emphasis_delimiter),
         alias(repeat1($._inline_no_emphasis), $.emphasis_content),
-        alias($._emphasis_star_delim, $.emphasis_delimiter)),
-      seq(alias($._emphasis_under_delim, $.emphasis_delimiter),
+        alias($._emphasis_star_close, $.emphasis_delimiter)),
+      seq(alias($._emphasis_under_open, $.emphasis_delimiter),
         alias(repeat1($._inline_no_emphasis), $.emphasis_content),
-        alias($._emphasis_under_delim, $.emphasis_delimiter)),
+        alias($._emphasis_under_close, $.emphasis_delimiter)),
     )),
-    _emphasis_star_delim: ($) => token(prec(1, '*')),
-    _emphasis_under_delim: ($) => token(prec(1, '_')),
+    // _emphasis_star_open / _emphasis_star_close and _emphasis_under_open /
+    // _emphasis_under_close are external scanner tokens (EMPHASIS_STAR_* /
+    // EMPHASIS_UNDERSCORE_*) carrying a closing-delimiter lookahead check in
+    // the scanner (has_closing_delimiter).
     _inline_no_emphasis: ($) => choice(
       $._whitespace,
       $.inline_code,
@@ -1186,6 +1211,10 @@ export default grammar({
     $.task_list_marker_unchecked,
     $._math_inline_open_delimiter,
     $._math_inline_close_delimiter,
+    $._math_block_open,
+    $._math_block_close,
+    $._directive_block_open,
+    $._directive_block_close,
     $._fenced_code_block_start_backtick,
     $._fenced_code_block_start_tilde,
     $._blank_line_start,
@@ -1214,6 +1243,23 @@ export default grammar({
 
     $._pipe_table_start,
     $._pipe_table_line_ending,
+
+    $._emphasis_star_open,
+    $._emphasis_star_close,
+    $._emphasis_under_open,
+    $._emphasis_under_close,
+    $._strong_star_open,
+    $._strong_star_close,
+    $._strong_under_open,
+    $._strong_under_close,
+    $._strikethrough_open,
+    $._strikethrough_close,
+    $._autolink_open,
+    $._footnote_ref_open,
+    $._inline_code_backtick_1_open,
+    $._inline_code_backtick_1_close,
+    $._inline_code_backtick_2_open,
+    $._inline_code_backtick_2_close,
   ],
   precedences: ($) => [
     [$._setext_heading1, $._block],

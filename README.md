@@ -37,12 +37,26 @@ A grammar that surfaces those distinctions natively is faster, more accurate, an
 
 ## Fork status and patches on top of upstream
 
-This grammar is a **fork** of [tree-sitter-grammars/tree-sitter-markdown](https://github.com/tree-sitter-grammars/tree-sitter-markdown), specifically derived from the **`split_parser`** branch's block grammar (see [Credits](#credits-and-references)). The block-level parsing, the `inline` wrapper, and the textlint `TxtNode` alignment all come from upstream. On top of that upstream base, this fork adds:
+This grammar is a **fork** of [`ophi-dev/tree-sitter-markdown-text`](https://github.com/ophi-dev/tree-sitter-markdown-text) (published under the older handle `ophidiarium/tree-sitter-markdown-text`, which redirects to `ophi-dev`). That upstream is itself a single-tree unification of the two-grammar [`tree-sitter-grammars/tree-sitter-markdown`](https://github.com/tree-sitter-grammars/tree-sitter-markdown): it folds the upstream block and inline grammars into one AST so block structure and inline content live in the same tree at once, shaped to line up with the textlint `TxtNode` model. The block-level parsing, the `inline` wrapper, and the textlint `TxtNode` alignment all come from that upstream. On top of it this fork adds:
 
 - **Four explicit link kinds.** The single `link` node is split into `inline_link`, `full_reference_link`, `collapsed_reference_link`, and `shortcut_link`, so a consumer can tell link syntax apart without re-tokenizing the source.
 - **Structural content inside link labels.** `link_label` children are parsed into structured inline nodes (code spans, emphasis/strong, autolinks, etc.) instead of opaque text.
 - **All image reference forms.** Images support the same four forms as links &mdash; `![alt](dest)` inline, `![alt][label]` full reference, `![alt][]` collapsed reference, `![alt]` shortcut reference &mdash; plus a block-level `image_block` for a standalone image paragraph.
 - **A reference-style link resolver layer** in [`tools/link-resolver`](tools/link-resolver/) that consumes the parse tree (via ast-grep custom-language scanning) and resolves reference links against `link_reference_definition`s per CommonMark normalization rules. It is a post-processing tool, not part of the grammar.
+
+### Runaway-emphasis fix
+
+Upstream has a known bug where an unclosed paired delimiter (`*`, `_`, `**`, `__`, `~~`, `$$`, `:::`, `<...>`, a backtick run, or `[^...`) commits the parser into a state it cannot close, and the resulting error recovery swallows all following block-level content (headings, code blocks, lists, blockquotes, tables) into a single paragraph/ERROR region that never appears in the tree. Filed upstream as [ophi-dev/tree-sitter-markdown-text#23](https://github.com/ophi-dev/tree-sitter-markdown-text/issues/23); still open as of 2026-08.
+
+This fork fixes it with a shared lookahead mechanism (`has_closing_delimiter` / `looks_like_block_start` in `src/scanner.c`): before committing to open any paired construct, the scanner verifies a matching closing delimiter exists before the current block boundary. If none is found, the delimiter degrades to plain text instead of triggering runaway recovery. The fix is applied uniformly across all affected constructs: emphasis, strong, strikethrough, math blocks, directive blocks, autolinks, footnote references, and inline code.
+
+**Known limitations** (all degrade safely to text &mdash; none produce an `ERROR` node or swallow following content):
+
+- `_text\n_` &mdash; a lone closing `_` on its own line is not recognized as a closer (indistinguishable from a `___` thematic-break start without extra lookahead).
+- `***bold+italic***` &mdash; a run of three stars is not split into nested `strong`+`emphasis`; the whole run degrades to text.
+- A strikethrough closer (`~~`) alone on a new line is not formed, because a `~~~` fence is the more likely reading of that line start.
+- The block-boundary heuristic (`looks_like_block_start`) does not cover setext underlines (`===`), ordered-list items (`1. `), HTML block start tags, or indented code blocks; a closer following only such a boundary may not be found (still degrades to text, never an `ERROR`).
+- An autolink at the very start of a line is not recognized (`<https://...>` at column 0 parses as an HTML block, not an autolink), because a block HTML tag takes precedence there.
 
 These additions are surfaced as new kinds in `src/node-types.json`; see the [Node kind reference](#node-kind-reference) below.
 

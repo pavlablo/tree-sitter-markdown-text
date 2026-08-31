@@ -30,6 +30,8 @@ enum {
     ORDERED_LIST_MAX_DIGITS = 9,
     // Metadata fences (`---` / `+++`) are exactly three characters wide.
     METADATA_FENCE_WIDTH = 3,
+    // Directive block delimiters are exactly three colons (`:::`).
+    DIRECTIVE_DELIMITER_LENGTH = 3,
     // Initial capacity for the open-blocks stack.
     OPEN_BLOCKS_INITIAL_CAPACITY = 8,
     // Length of the CDATA prefix (`<![CDATA[`).
@@ -83,6 +85,10 @@ typedef enum {
     TASK_LIST_MARKER_UNCHECKED,
     MATH_INLINE_OPEN_DELIMITER,
     MATH_INLINE_CLOSE_DELIMITER,
+    MATH_BLOCK_OPEN_DELIMITER,
+    MATH_BLOCK_CLOSE_DELIMITER,
+    DIRECTIVE_BLOCK_OPEN_DELIMITER,
+    DIRECTIVE_BLOCK_CLOSE_DELIMITER,
     FENCED_CODE_BLOCK_START_BACKTICK,
     FENCED_CODE_BLOCK_START_TILDE,
     BLANK_LINE_START,
@@ -105,6 +111,22 @@ typedef enum {
     PLUS_METADATA,
     PIPE_TABLE_START,
     PIPE_TABLE_LINE_ENDING,
+    EMPHASIS_STAR_OPEN,
+    EMPHASIS_STAR_CLOSE,
+    EMPHASIS_UNDERSCORE_OPEN,
+    EMPHASIS_UNDERSCORE_CLOSE,
+    STRONG_STAR_OPEN,
+    STRONG_STAR_CLOSE,
+    STRONG_UNDERSCORE_OPEN,
+    STRONG_UNDERSCORE_CLOSE,
+    STRIKETHROUGH_OPEN,
+    STRIKETHROUGH_CLOSE,
+    AUTOLINK_OPEN,
+    FOOTNOTE_REF_OPEN,
+    INLINE_CODE_BACKTICK_1_OPEN,
+    INLINE_CODE_BACKTICK_1_CLOSE,
+    INLINE_CODE_BACKTICK_2_OPEN,
+    INLINE_CODE_BACKTICK_2_CLOSE,
     SCANNER_TOKEN_TYPE_COUNT,
 } TokenType;
 
@@ -241,7 +263,7 @@ enum {
 
 TS_MD_STATIC_ASSERT(ATX_H6_MARKER == ATX_H1_MARKER + (ATX_HEADING_LEVELS - 1),
                     atx_markers_contiguous);
-TS_MD_STATIC_ASSERT(SCANNER_TOKEN_TYPE_COUNT == PIPE_TABLE_LINE_ENDING + 1,
+TS_MD_STATIC_ASSERT(SCANNER_TOKEN_TYPE_COUNT == INLINE_CODE_BACKTICK_2_CLOSE + 1,
                     token_type_count_trails_enum);
 TS_MD_STATIC_ASSERT(ANONYMOUS <= UINT8_MAX,
                     block_fits_in_one_byte);
@@ -680,124 +702,160 @@ static bool scan_metadata_block(Scanner *s, TSLexer *lexer,
     }
 }
 
-// NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
-static bool parse_fenced_code_block(Scanner *s, const char delimiter,
-                                    TSLexer *lexer, const bool *valid_symbols) {
-    // count the number of backticks
-    uint32_t level = 0;
-    while (lexer->lookahead == delimiter) {
-        advance(s, lexer);
-        if (level < UINT32_MAX) {
-            level++;
-        }
-    }
-    mark_end(s, lexer);
-    // If this is able to close a fenced code block then that is the only valid
-    // interpretation. It can only close a fenced code block if the number of
-    // backticks is at least the number of backticks of the opening delimiter.
-    // Also it cannot be indented more than 3 spaces.
-    if ((delimiter == '`' ? valid_symbols[FENCED_CODE_BLOCK_END_BACKTICK]
-                          : valid_symbols[FENCED_CODE_BLOCK_END_TILDE]) &&
-        s->indentation <= MAX_NON_CODE_INDENT &&
-        level >= s->fenced_code_block_delimiter_length) {
-        while (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
-            advance(s, lexer);
-        }
-        if (lexer->lookahead == '\n' || lexer->lookahead == '\r') {
-            s->fenced_code_block_delimiter_length = 0;
-            lexer->result_symbol = delimiter == '`'
-                                       ? FENCED_CODE_BLOCK_END_BACKTICK
-                                       : FENCED_CODE_BLOCK_END_TILDE;
-            return true;
-        }
-    }
-    // If this could be the start of a fenced code block, check if the info
-    // string contains any backticks.
-    if ((delimiter == '`' ? valid_symbols[FENCED_CODE_BLOCK_START_BACKTICK]
-                          : valid_symbols[FENCED_CODE_BLOCK_START_TILDE]) &&
-        s->indentation <= MAX_NON_CODE_INDENT &&
-        level >= FENCED_CODE_MIN_FENCE) {
-        bool info_string_has_backtick = false;
-        if (delimiter == '`') {
-            while (lexer->lookahead != '\n' && lexer->lookahead != '\r' &&
-                   !lexer->eof(lexer)) {
-                if (lexer->lookahead == '`') {
-                    info_string_has_backtick = true;
-                    break;
-                }
-                advance(s, lexer);
-            }
-        }
-        // If it does not then choose to interpret this as the start of a fenced
-        // code block.
-        if (!info_string_has_backtick) {
-            lexer->result_symbol = delimiter == '`'
-                                       ? FENCED_CODE_BLOCK_START_BACKTICK
-                                       : FENCED_CODE_BLOCK_START_TILDE;
-            if (!s->simulate && !push_block(s, FENCED_CODE_BLOCK)) {
-                return false;
-            }
-            // Remember the length of the delimiter for later, since we need it
-            // to decide whether a sequence of backticks can close the block.
-            s->fenced_code_block_delimiter_length = level;
-            s->indentation = 0;
-            return true;
-        }
-    }
-    return false;
-}
-// NOLINTEND(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
 
-
+// ---------------------------------------------------------------------------
+// looks_like_block_start: heuristic check run at the FIRST character of each
+// new line inside has_closing_delimiter.  Returns true when the line looks
+// like the start of a block element that would interrupt a paragraph, meaning
+// the inline span cannot legally cross this boundary.
+//
+// Covered interrupting patterns:
+//   ATX heading       : 1-6 `#` characters followed by a space or end-of-line.
+//   Fenced code fence : 3+ backticks (```) or 3+ tildes (~~~) at line start.
+//   Block-quote marker: line starts with `>`.
+//   Thematic break    : line starts with `-`, `*`, or `_` — we do a simple
+//                       first-character check only (not a full thematic-break
+//                       parse) because the scanner cannot advance further
+//                       without corrupting the search position.  This catches
+//                       the common `---` / `***` / `___` forms; it will also
+//                       fire for `- item` (list marker), which is acceptable
+//                       because list items are another CommonMark interrupt.
+//
+// NOT covered (known limitations — tracked for future work):
+//   - Setext heading underlines (=== / ---): the `---` form overlaps with
+//     thematic break and is caught there; `===` is not detected.
+//   - Ordered/unordered list items in general (beyond the first-char `*/-`
+//     check above): detecting `1. ` or `- ` properly needs more lookahead.
+//   - HTML block start tags: complex to detect correctly in raw-text scan.
+//   - Indented code blocks: require column-counting, not feasible here.
+//   - Underscore-emphasis closer as the ONLY character on a new line
+//     (e.g. `_text\n_`): the closing `_` is indistinguishable from the start
+//     of a thematic break (`___`) without advancing the lexer, so the search
+//     stops there and the emphasis is not formed.  Error direction is safe:
+//     emphasis silently degrades to plain text, the document is not damaged.
+//
+// The lexer is NOT advanced by this function; it reads only lexer->lookahead.
+// ---------------------------------------------------------------------------
 // NOLINTBEGIN(readability-identifier-length)
-static bool parse_task_list_marker(Scanner *s, TSLexer *lexer,
-                                   const bool *valid_symbols) {
-    if (!(valid_symbols[TASK_LIST_MARKER_CHECKED] ||
-          valid_symbols[TASK_LIST_MARKER_UNCHECKED]) ||
-        lexer->lookahead != '[') {
-        return false;
+static bool looks_like_block_start(TSLexer *lexer) {
+    int32_t ch = lexer->lookahead;
+
+    // ATX heading: `#` (1-6 times) followed by space or end-of-line.
+    // We only peek at the first character; the heading-level check is done by
+    // verifying it IS a `#`.  The space/EOL requirement is not checked here
+    // (we cannot advance), but a lone `#` at line-start is overwhelmingly a
+    // heading in practice.
+    if (ch == '#') {
+        return true;
     }
 
-    advance(s, lexer);
-    bool checked = false;
-    bool unchecked = false;
-    if (lexer->lookahead == 'x' || lexer->lookahead == 'X') {
-        checked = true;
-    } else if (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
-        unchecked = true;
-    }
-    if ((!checked || !valid_symbols[TASK_LIST_MARKER_CHECKED]) &&
-        (!unchecked || !valid_symbols[TASK_LIST_MARKER_UNCHECKED])) {
-        return false;
+    // Block-quote marker.
+    if (ch == '>') {
+        return true;
     }
 
-    advance(s, lexer);
-    if (lexer->lookahead != ']') {
-        return false;
+    // Fenced code fence: ``` or ~~~.  First character is enough signal.
+    if (ch == '`' || ch == '~') {
+        return true;
     }
 
-    advance(s, lexer);
-    if (lexer->lookahead != ' ' && lexer->lookahead != '\t' &&
-        lexer->lookahead != '\n' && lexer->lookahead != '\r' &&
-        !lexer->eof(lexer)) {
-        return false;
+    // Thematic break / list-marker first character.
+    // `-` covers `---` thematic break and `- item` list marker.
+    // `*` covers `***` thematic break (and would also be a `* item` list).
+    // `_` covers `___` thematic break.
+    // These are all valid paragraph-interrupting elements.
+    if (ch == '-' || ch == '_') {
+        return true;
     }
 
-    lexer->result_symbol = TASK_LIST_MARKER_UNCHECKED;
-    if (checked) {
-        lexer->result_symbol = TASK_LIST_MARKER_CHECKED;
-    }
-    return true;
+    return false;
 }
 // NOLINTEND(readability-identifier-length)
 
 
-// NOLINTBEGIN(readability-identifier-length)
+// ---------------------------------------------------------------------------
+// Universal lookahead helper: does a closing delimiter exist before the next
+// block boundary?
+//
+// Scans forward from the CURRENT lexer position looking for a run of exactly
+// `close_len` consecutive `close_char` characters whose length equals
+// `close_len` (not a longer run that merely *starts* with `close_len` chars).
+// Returns true iff such a run is found before a block boundary.
+//
+// Block boundary detection (two independent triggers):
+//   1. Empty line: two consecutive line endings with no other character
+//      between them (\n\n or \r\n\r\n etc.).
+//   2. Single newline followed by a line that looks like a block-level
+//      element start (ATX heading, fenced code, blockquote, thematic break /
+//      list marker first character) — checked via looks_like_block_start().
+//
+// NOT covered by the boundary heuristic (see looks_like_block_start comment):
+//   setext underlines, ordered list items, HTML block tags, indented code.
+//
+// Position contract: this function ONLY calls `lexer->advance`; it does NOT
+// call `mark_end`.  The caller restores `s->indentation` / `s->column` before
+// returning false, because tree-sitter's C runtime resets the raw byte-stream
+// position on scanner backtrack but does NOT restore Scanner struct fields.
+// ---------------------------------------------------------------------------
+// NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity)
+static bool has_closing_delimiter(TSLexer *lexer,
+                                  int32_t close_char,
+                                  uint32_t close_len) {
+    bool prev_was_newline = false;
+    uint32_t run = 0;
+
+    while (!lexer->eof(lexer)) {
+        int32_t ch = lexer->lookahead;
+
+        if (ch == '\n' || ch == '\r') {
+            if (prev_was_newline) {
+                // Empty line — block boundary, stop.
+                return false;
+            }
+            prev_was_newline = true;
+            run = 0;
+            lexer->advance(lexer, false);
+            continue;
+        }
+
+        // First non-newline character of a new line: check for block start.
+        if (prev_was_newline && looks_like_block_start(lexer)) {
+            return false;
+        }
+        prev_was_newline = false;
+
+        if (ch == close_char) {
+            run++;
+            lexer->advance(lexer, false);
+            // Check whether the run ends exactly here (next char ≠ close_char).
+            // We must NOT accept a prefix of a longer run, e.g. when
+            // close_len==2 and the text has `***`, only `**` would match, but
+            // the third `*` makes this a run of 3, not 2.
+            if (run == close_len && lexer->lookahead != close_char) {
+                return true;
+            }
+        } else {
+            run = 0;
+            lexer->advance(lexer, false);
+        }
+    }
+    return false;
+}
+// NOLINTEND(readability-identifier-length,readability-function-cognitive-complexity)
+
+
+// NOLINTBEGIN(readability-identifier-length,readability-magic-numbers,readability-function-cognitive-complexity)
 static bool parse_math_inline_delimiter(Scanner *s, TSLexer *lexer,
                                         const bool *valid_symbols) {
-    if (!(valid_symbols[MATH_INLINE_OPEN_DELIMITER] ||
-          valid_symbols[MATH_INLINE_CLOSE_DELIMITER]) ||
-        lexer->lookahead != '$') {
+    if (lexer->lookahead != '$') {
+        return false;
+    }
+
+    bool block_open = valid_symbols[MATH_BLOCK_OPEN_DELIMITER];
+    bool block_close = valid_symbols[MATH_BLOCK_CLOSE_DELIMITER];
+    bool inline_open = valid_symbols[MATH_INLINE_OPEN_DELIMITER];
+    bool inline_close = valid_symbols[MATH_INLINE_CLOSE_DELIMITER];
+    if (!block_open && !block_close && !inline_open && !inline_close) {
         return false;
     }
 
@@ -805,7 +863,37 @@ static bool parse_math_inline_delimiter(Scanner *s, TSLexer *lexer,
     uint8_t start_column = s->column;
     advance(s, lexer);
 
-    if (valid_symbols[MATH_INLINE_OPEN_DELIMITER] &&
+    // Math-block delimiter: a run of EXACTLY two `$` (`$$`) with no third.
+    // The open form additionally requires a matching `$$` closer before the
+    // next block boundary (has_closing_delimiter's exact-run semantics).  A
+    // single `$` is never a block delimiter and falls through to the inline
+    // handling below.
+    if ((block_open || block_close) && lexer->lookahead == '$') {
+        advance(s, lexer);
+        if (lexer->lookahead != '$') {
+            // Exactly two dollars: mark_end commits the `$$` boundary so the
+            // token is exactly two characters even though has_closing_delimiter
+            // scans further ahead.
+            mark_end(s, lexer);
+            if (block_open && has_closing_delimiter(lexer, '$', 2)) {
+                lexer->result_symbol = MATH_BLOCK_OPEN_DELIMITER;
+                return true;
+            }
+            if (block_close) {
+                lexer->result_symbol = MATH_BLOCK_CLOSE_DELIMITER;
+                return true;
+            }
+        }
+        // A longer run (`$$$`) is not a math-block delimiter, and an unclosed
+        // `$$` has no matching closer: neither yields a valid block token here.
+        // Inline math cannot consume a `$$` run either, so returning false lets
+        // the run degrade to ordinary text instead of a runaway ERROR.
+        s->indentation = start_indentation;
+        s->column = start_column;
+        return false;
+    }
+
+    if (inline_open &&
         lexer->lookahead != '$' && lexer->lookahead != ' ' &&
         lexer->lookahead != '\t' && lexer->lookahead != '\n' &&
         lexer->lookahead != '\r' && !lexer->eof(lexer)) {
@@ -838,8 +926,7 @@ static bool parse_math_inline_delimiter(Scanner *s, TSLexer *lexer,
         return false;
     }
 
-    if (valid_symbols[MATH_INLINE_CLOSE_DELIMITER] &&
-        !is_ascii_digit(lexer->lookahead)) {
+    if (inline_close && !is_ascii_digit(lexer->lookahead)) {
         lexer->result_symbol = MATH_INLINE_CLOSE_DELIMITER;
         return true;
     }
@@ -848,24 +935,282 @@ static bool parse_math_inline_delimiter(Scanner *s, TSLexer *lexer,
     s->column = start_column;
     return false;
 }
-// NOLINTEND(readability-identifier-length)
+// NOLINTEND(readability-identifier-length,readability-magic-numbers,readability-function-cognitive-complexity)
+
+
+// NOLINTBEGIN(readability-identifier-length,readability-magic-numbers,readability-function-cognitive-complexity)
+static bool parse_colon(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
+    bool block_open = valid_symbols[DIRECTIVE_BLOCK_OPEN_DELIMITER];
+    bool block_close = valid_symbols[DIRECTIVE_BLOCK_CLOSE_DELIMITER];
+    if (!block_open && !block_close) {
+        return false;
+    }
+
+    uint16_t start_indentation = s->indentation;
+    uint8_t start_column = s->column;
+    advance(s, lexer);
+    advance(s, lexer);
+    if (lexer->lookahead != ':') {
+        // A run of one or two colons (`:` / `::`) is not a directive
+        // delimiter.
+        s->indentation = start_indentation;
+        s->column = start_column;
+        return false;
+    }
+    advance(s, lexer);
+    if (lexer->lookahead == ':') {
+        // A run of 4+ colons (`::::`) is not a directive delimiter either; it
+        // degrades to ordinary text.
+        s->indentation = start_indentation;
+        s->column = start_column;
+        return false;
+    }
+
+    // Exactly three colons (`:::`): the directive delimiter.  mark_end commits
+    // the three-char boundary so the token is exactly `:::` even though
+    // has_closing_delimiter scans further ahead.
+    mark_end(s, lexer);
+    if (block_open && has_closing_delimiter(lexer, ':', DIRECTIVE_DELIMITER_LENGTH)) {
+        lexer->result_symbol = DIRECTIVE_BLOCK_OPEN_DELIMITER;
+        return true;
+    }
+    if (block_close) {
+        lexer->result_symbol = DIRECTIVE_BLOCK_CLOSE_DELIMITER;
+        return true;
+    }
+    // An unclosed `:::` has no matching closer before the next block boundary:
+    // return false so it degrades to ordinary paragraph text instead of a
+    // runaway ERROR.
+    s->indentation = start_indentation;
+    s->column = start_column;
+    return false;
+}
+// NOLINTEND(readability-identifier-length,readability-magic-numbers,readability-function-cognitive-complexity)
+
+
+// NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
+// A '[' at a token start could begin a footnote reference (`[^id]`), a task
+// list marker (`[x]` / `[ ]`), or a plain bracket (link label / shortcut).
+// All three are disambiguated by the character after the '['.  We consume the
+// '[' exactly once and branch on the second character; if none of the
+// scanner-emitted tokens apply we return false, letting tree-sitter rewind the
+// byte position and treat '[' as an ordinary bracket.  (We deliberately do NOT
+// chain a second parse_* after a failed one: the lexer byte position only
+// rewinds when the whole scan() returns false, not between internal calls.)
+static bool parse_bracket_open(Scanner *s, TSLexer *lexer,
+                               const bool *valid_symbols) {
+    if (lexer->lookahead != '[') {
+        return false;
+    }
+    bool footnote = valid_symbols[FOOTNOTE_REF_OPEN];
+    bool task_list = valid_symbols[TASK_LIST_MARKER_CHECKED] ||
+                     valid_symbols[TASK_LIST_MARKER_UNCHECKED];
+    if (!footnote && !task_list) {
+        return false;
+    }
+    uint16_t start_indentation = s->indentation;
+    uint8_t start_column = s->column;
+    advance(s, lexer); // consume '['
+
+    // Footnote reference: '[^'.  The open is only emitted when a closing ']'
+    // exists before the next block boundary; an unclosed '[^' degrades to
+    // ordinary text instead of a runaway ERROR.
+    if (footnote && lexer->lookahead == '^') {
+        advance(s, lexer); // consume '^'
+        mark_end(s, lexer); // token = the two-char `[^`
+        if (has_closing_delimiter(lexer, ']', 1)) {
+            lexer->result_symbol = FOOTNOTE_REF_OPEN;
+            return true;
+        }
+        s->indentation = start_indentation;
+        s->column = start_column;
+        return false;
+    }
+
+    // Task list marker: '[x]' or '[ ]', followed by whitespace.
+    if (task_list) {
+        bool checked = false;
+        bool unchecked = false;
+        if (lexer->lookahead == 'x' || lexer->lookahead == 'X') {
+            checked = true;
+        } else if (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
+            unchecked = true;
+        }
+        if ((!checked || !valid_symbols[TASK_LIST_MARKER_CHECKED]) &&
+            (!unchecked || !valid_symbols[TASK_LIST_MARKER_UNCHECKED])) {
+            s->indentation = start_indentation;
+            s->column = start_column;
+            return false;
+        }
+        advance(s, lexer); // consume 'x' or ' '
+        if (lexer->lookahead != ']') {
+            s->indentation = start_indentation;
+            s->column = start_column;
+            return false;
+        }
+        advance(s, lexer); // consume ']'
+        if (lexer->lookahead != ' ' && lexer->lookahead != '\t' &&
+            lexer->lookahead != '\n' && lexer->lookahead != '\r' &&
+            !lexer->eof(lexer)) {
+            s->indentation = start_indentation;
+            s->column = start_column;
+            return false;
+        }
+        lexer->result_symbol =
+            checked ? TASK_LIST_MARKER_CHECKED : TASK_LIST_MARKER_UNCHECKED;
+        return true;
+    }
+
+    // Neither a footnote reference nor a task list marker: degrade to a plain
+    // '[' bracket (runtime rewinds to the token start).
+    s->indentation = start_indentation;
+    s->column = start_column;
+    return false;
+}
+// NOLINTEND(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
+
+
+// NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
+static bool parse_backtick(Scanner *s, TSLexer *lexer,
+                           const bool *valid_symbols) {
+    bool ic_1_open = valid_symbols[INLINE_CODE_BACKTICK_1_OPEN];
+    bool ic_1_close = valid_symbols[INLINE_CODE_BACKTICK_1_CLOSE];
+    bool ic_2_open = valid_symbols[INLINE_CODE_BACKTICK_2_OPEN];
+    bool ic_2_close = valid_symbols[INLINE_CODE_BACKTICK_2_CLOSE];
+    bool inline_valid = ic_1_open || ic_1_close || ic_2_open || ic_2_close;
+    bool fence_start = valid_symbols[FENCED_CODE_BLOCK_START_BACKTICK];
+    bool fence_end = valid_symbols[FENCED_CODE_BLOCK_END_BACKTICK];
+    if (!inline_valid && !fence_start && !fence_end) {
+        return false;
+    }
+
+    // Count the run of backticks, remembering the single- and double-backtick
+    // boundaries so an inline-code delimiter token covers exactly 1 or 2 chars
+    // (mark_end commits the boundary even though has_closing_delimiter scans
+    // further ahead).
+    uint32_t level = 0;
+    while (lexer->lookahead == '`') {
+        advance(s, lexer);
+        level++;
+        if (level <= 2) {
+            mark_end(s, lexer);
+        }
+    }
+
+    // Inline code: a run of exactly one or two backticks.  A close emits
+    // unconditionally; an open requires a matching closer run of the same
+    // length before the next block boundary.
+    if (level == 1 && inline_valid) {
+        if (ic_1_close) {
+            lexer->result_symbol = INLINE_CODE_BACKTICK_1_CLOSE;
+            return true;
+        }
+        if (ic_1_open && !lexer->eof(lexer) &&
+            has_closing_delimiter(lexer, '`', 1)) {
+            lexer->result_symbol = INLINE_CODE_BACKTICK_1_OPEN;
+            return true;
+        }
+        return false;
+    }
+    if (level == 2 && inline_valid) {
+        if (ic_2_close) {
+            lexer->result_symbol = INLINE_CODE_BACKTICK_2_CLOSE;
+            return true;
+        }
+        if (ic_2_open && !lexer->eof(lexer) &&
+            has_closing_delimiter(lexer, '`', 2)) {
+            lexer->result_symbol = INLINE_CODE_BACKTICK_2_OPEN;
+            return true;
+        }
+        return false;
+    }
+
+    // A run of 3+ backticks is a fenced code block, never inline code.
+    if (level < FENCED_CODE_MIN_FENCE || s->indentation > MAX_NON_CODE_INDENT) {
+        return false;
+    }
+    mark_end(s, lexer);
+    if (fence_end && level >= s->fenced_code_block_delimiter_length) {
+        while (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
+            advance(s, lexer);
+        }
+        if (lexer->lookahead == '\n' || lexer->lookahead == '\r') {
+            s->fenced_code_block_delimiter_length = 0;
+            lexer->result_symbol = FENCED_CODE_BLOCK_END_BACKTICK;
+            return true;
+        }
+    }
+    if (fence_start && level >= FENCED_CODE_MIN_FENCE) {
+        bool info_string_has_backtick = false;
+        while (lexer->lookahead != '\n' && lexer->lookahead != '\r' &&
+               !lexer->eof(lexer)) {
+            if (lexer->lookahead == '`') {
+                info_string_has_backtick = true;
+                break;
+            }
+            advance(s, lexer);
+        }
+        if (!info_string_has_backtick) {
+            lexer->result_symbol = FENCED_CODE_BLOCK_START_BACKTICK;
+            if (!s->simulate && !push_block(s, FENCED_CODE_BLOCK)) {
+                return false;
+            }
+            s->fenced_code_block_delimiter_length = level;
+            s->indentation = 0;
+            return true;
+        }
+    }
+    return false;
+}
+// NOLINTEND(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
 
 
 // NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
 static bool parse_star(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
-    if (s->indentation > MAX_NON_CODE_INDENT ||
-        !(valid_symbols[LIST_MARKER_STAR] ||
-          valid_symbols[LIST_MARKER_STAR_DONT_INTERRUPT] ||
-          valid_symbols[THEMATIC_BREAK])) {
+    bool block_valid = valid_symbols[LIST_MARKER_STAR] ||
+                       valid_symbols[LIST_MARKER_STAR_DONT_INTERRUPT] ||
+                       valid_symbols[THEMATIC_BREAK];
+    bool strong_open = valid_symbols[STRONG_STAR_OPEN];
+    bool strong_close = valid_symbols[STRONG_STAR_CLOSE];
+    bool emph_open = valid_symbols[EMPHASIS_STAR_OPEN];
+    bool emph_close = valid_symbols[EMPHASIS_STAR_CLOSE];
+    bool inline_valid = strong_open || strong_close || emph_open || emph_close;
+    if (!block_valid && !inline_valid) {
         return false;
+    }
+    // Block tokens require the indentation to be within limits; inline
+    // emphasis tokens have no such restriction.
+    if (block_valid && s->indentation > MAX_NON_CODE_INDENT) {
+        if (!inline_valid) {
+            return false;
+        }
     }
     advance(s, lexer);
     mark_end(s, lexer);
+
+    // Inline emphasis close: a lone single `*` (next char is not `*`).  A
+    // multi-star run is handled as strong below; nested `***` runs are limited
+    // by has_closing_delimiter's exact-run semantics (see note in parse_star).
+    // Checked before the counting loop because the loop advances past
+    // additional `*` and spaces, which would corrupt the delimiter length for
+    // the inline case.
+    if (emph_close && lexer->lookahead != '*') {
+        lexer->result_symbol = EMPHASIS_STAR_CLOSE;
+        return true;
+    }
+
     // Otherwise count the number of stars permitting whitespaces between them.
+    // `consecutive` is the number of stars before any whitespace — the inline
+    // delimiter length (`**` strong, `*` emphasis).  `star_count` includes
+    // stars after whitespace and is used only for block detection (thematic
+    // break `* * *`); mixing the two would let a following `*` (e.g. in
+    // `**bold** *em*`) corrupt the inline delimiter length.
     size_t star_count = 1;
+    size_t consecutive = 1;
     // Also remember how many stars there are before the first whitespace...
     // ...and how many spaces follow the first star.
     uint16_t extra_indentation = 0;
+    bool seen_space = false;
     for (;;) {
         if (lexer->lookahead == '*') {
             if (star_count == 1 && extra_indentation >= 1 &&
@@ -876,18 +1221,28 @@ static bool parse_star(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
                 mark_end(s, lexer);
             }
             star_count++;
+            if (!seen_space) {
+                consecutive++;
+            }
             advance(s, lexer);
+            if (star_count == 2) {
+                // Remember the two-star boundary so a strong open/close token
+                // covers exactly `**`.
+                mark_end(s, lexer);
+            }
         } else if (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
             if (star_count == 1) {
                 add_indentation(&extra_indentation, advance(s, lexer));
             } else {
                 advance(s, lexer);
             }
+            seen_space = true;
         } else {
             break;
         }
     }
     bool line_end = lexer->lookahead == '\n' || lexer->lookahead == '\r';
+
     bool dont_interrupt = false;
     if (star_count == 1 && line_end) {
         extra_indentation = 1;
@@ -926,32 +1281,226 @@ static bool parse_star(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
                 .marker_width_adjust = 0,
             });
     }
+
+    // Strong close: exactly two consecutive stars (no third).  A longer closing
+    // run falls through and degrades to text (has_closing_delimiter's exact-run
+    // semantics do not support `***` nesting — see note in has_closing_delimiter).
+    if (strong_close && consecutive == 2) {
+        // mark_end already committed at the two-star boundary.
+        lexer->result_symbol = STRONG_STAR_CLOSE;
+        return true;
+    }
+    // Strong open: at least two consecutive stars, no trailing space, not at
+    // end of line (left-flanking simplified rule), and a matching `**` closer
+    // exists before the next block boundary.
+    if (strong_open && consecutive >= 2 && !line_end && extra_indentation == 0 &&
+        !lexer->eof(lexer)) {
+        // mark_end already committed at the two-star boundary, so the token
+        // length is correct even though has_closing_delimiter advances further.
+        if (has_closing_delimiter(lexer, '*', 2)) {
+            lexer->result_symbol = STRONG_STAR_OPEN;
+            return true;
+        }
+    }
+
+    // Inline emphasis open: exactly one `*`, no trailing space, not at end
+    // of line (left-flanking simplified rule), and a matching closer exists
+    // before the next block boundary.
+    if (emph_open && consecutive == 1 && !line_end && extra_indentation == 0 &&
+        !lexer->eof(lexer)) {
+        // mark_end is already committed after the first `*`, so the token
+        // length is correct even though has_closing_delimiter advances further.
+        if (has_closing_delimiter(lexer, '*', 1)) {
+            lexer->result_symbol = EMPHASIS_STAR_OPEN;
+            return true;
+        }
+    }
+
     return false;
 }
 // NOLINTEND(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
 
 
 // NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
-static bool parse_thematic_break_underscore(Scanner *s, TSLexer *lexer,
-                                            const bool *valid_symbols) {
+static bool parse_underscore(Scanner *s, TSLexer *lexer,
+                             const bool *valid_symbols) {
+    bool thematic_valid = valid_symbols[THEMATIC_BREAK];
+    bool strong_open = valid_symbols[STRONG_UNDERSCORE_OPEN];
+    bool strong_close = valid_symbols[STRONG_UNDERSCORE_CLOSE];
+    bool emph_open = valid_symbols[EMPHASIS_UNDERSCORE_OPEN];
+    bool emph_close = valid_symbols[EMPHASIS_UNDERSCORE_CLOSE];
+    bool inline_valid = strong_open || strong_close || emph_open || emph_close;
+    if (!thematic_valid && !inline_valid) {
+        return false;
+    }
+    // Block tokens (thematic break) require the indentation to be within
+    // limits; inline emphasis tokens have no such restriction.
+    if (thematic_valid && s->indentation > MAX_NON_CODE_INDENT) {
+        thematic_valid = false;
+        if (!inline_valid) {
+            return false;
+        }
+    }
     advance(s, lexer);
     mark_end(s, lexer);
+
+    // Inline emphasis close: a lone single `_` (next char is not `_`).
+    // Checked before the scanning loop because the loop advances past
+    // additional `_` and spaces, which would corrupt the delimiter length for
+    // the inline case.
+    if (emph_close && lexer->lookahead != '_') {
+        // mark_end is already committed after the single `_`.
+        lexer->result_symbol = EMPHASIS_UNDERSCORE_CLOSE;
+        return true;
+    }
+
+    // Otherwise count the underscores permitting whitespaces between them.
+    // `consecutive` is the number of underscores before any whitespace — the
+    // inline delimiter length (`__` strong, `_` emphasis).  `underscore_count`
+    // includes underscores after whitespace and is used only for block
+    // detection (thematic break `_ _ _`).
     size_t underscore_count = 1;
+    size_t consecutive = 1;
+    // Remember how many spaces follow the first underscore.
+    uint16_t extra_indentation = 0;
+    bool seen_space = false;
     for (;;) {
         if (lexer->lookahead == '_') {
             underscore_count++;
+            if (!seen_space) {
+                consecutive++;
+            }
             advance(s, lexer);
+            if (underscore_count == 2) {
+                // Remember the two-underscore boundary so a strong open/close
+                // token covers exactly `__`.
+                mark_end(s, lexer);
+            }
         } else if (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
-            advance(s, lexer);
+            if (underscore_count == 1) {
+                add_indentation(&extra_indentation, advance(s, lexer));
+            } else {
+                advance(s, lexer);
+            }
+            seen_space = true;
         } else {
             break;
         }
     }
     bool line_end = lexer->lookahead == '\n' || lexer->lookahead == '\r';
-    if (s->indentation <= MAX_NON_CODE_INDENT && underscore_count >= 3 &&
-        line_end && valid_symbols[THEMATIC_BREAK]) {
+
+    // If there were at least 3 underscores at end of line this is a thematic
+    // break.
+    if (thematic_valid && underscore_count >= 3 && line_end &&
+        s->indentation <= MAX_NON_CODE_INDENT) {
         lexer->result_symbol = THEMATIC_BREAK;
         mark_end(s, lexer);
+        s->indentation = 0;
+        return true;
+    }
+
+    // Strong close: exactly two consecutive underscores (no third).
+    if (strong_close && consecutive == 2) {
+        // mark_end already committed at the two-underscore boundary.
+        lexer->result_symbol = STRONG_UNDERSCORE_CLOSE;
+        return true;
+    }
+    // Strong open: at least two consecutive underscores, no trailing space,
+    // not at end of line (left-flanking simplified rule), and a matching `__`
+    // closer exists before the next block boundary.
+    if (strong_open && consecutive >= 2 && !line_end && extra_indentation == 0 &&
+        !lexer->eof(lexer)) {
+        // mark_end already committed at the two-underscore boundary, so the
+        // token length is correct even though has_closing_delimiter advances
+        // further.
+        if (has_closing_delimiter(lexer, '_', 2)) {
+            lexer->result_symbol = STRONG_UNDERSCORE_OPEN;
+            return true;
+        }
+    }
+
+    // Inline emphasis open: exactly one `_`, no trailing space, not at end
+    // of line (left-flanking simplified rule), and a matching closer exists
+    // before the next block boundary.
+    if (emph_open && consecutive == 1 && !line_end && extra_indentation == 0 &&
+        !lexer->eof(lexer)) {
+        // mark_end is already committed after the first `_`, so the token
+        // length is correct even though has_closing_delimiter advances further.
+        if (has_closing_delimiter(lexer, '_', 1)) {
+            lexer->result_symbol = EMPHASIS_UNDERSCORE_OPEN;
+            return true;
+        }
+    }
+
+    return false;
+}
+// NOLINTEND(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
+
+
+// NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
+static bool parse_tilde(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
+    bool fence_start = valid_symbols[FENCED_CODE_BLOCK_START_TILDE];
+    bool fence_end = valid_symbols[FENCED_CODE_BLOCK_END_TILDE];
+    bool strike_open = valid_symbols[STRIKETHROUGH_OPEN];
+    bool strike_close = valid_symbols[STRIKETHROUGH_CLOSE];
+    if (!fence_start && !fence_end && !strike_open && !strike_close) {
+        return false;
+    }
+
+    // Count the run of tildes, remembering the two-tilde boundary for
+    // strikethrough and the full-run boundary for the fenced code block.
+    uint32_t level = 0;
+    while (lexer->lookahead == '~') {
+        advance(s, lexer);
+        if (level < UINT32_MAX) {
+            level++;
+        }
+        if (level == 2) {
+            // Two-tilde boundary: the strikethrough delimiter `~~`.
+            mark_end(s, lexer);
+        }
+    }
+
+    // Strikethrough: exactly two tildes.
+    if (level == 2 && (strike_open || strike_close)) {
+        if (strike_close) {
+            lexer->result_symbol = STRIKETHROUGH_CLOSE;
+            return true;
+        }
+        // Inline strikethrough open: a matching `~~` closer exists before the
+        // next block boundary.  (No left-flanking space rule needed here: `~`
+        // is not a word character, so there is no intraword ambiguity.)
+        if (strike_open && !lexer->eof(lexer) &&
+            has_closing_delimiter(lexer, '~', 2)) {
+            lexer->result_symbol = STRIKETHROUGH_OPEN;
+            return true;
+        }
+        return false;
+    }
+
+    // Fenced code block (run >= 3).  Inlined from parse_fenced_code_block for
+    // the `~` delimiter (the tilde fence has no info-string backtick check).
+    if (level < FENCED_CODE_MIN_FENCE ||
+        s->indentation > MAX_NON_CODE_INDENT) {
+        return false;
+    }
+    mark_end(s, lexer);
+    if (fence_end && level >= s->fenced_code_block_delimiter_length) {
+        while (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
+            advance(s, lexer);
+        }
+        if (lexer->lookahead == '\n' || lexer->lookahead == '\r') {
+            s->fenced_code_block_delimiter_length = 0;
+            lexer->result_symbol = FENCED_CODE_BLOCK_END_TILDE;
+            return true;
+        }
+    }
+    if (fence_start && level >= FENCED_CODE_MIN_FENCE) {
+        lexer->result_symbol = FENCED_CODE_BLOCK_START_TILDE;
+        if (!s->simulate && !push_block(s, FENCED_CODE_BLOCK)) {
+            return false;
+        }
+        s->fenced_code_block_delimiter_length = level;
         s->indentation = 0;
         return true;
     }
@@ -1252,8 +1801,135 @@ static bool parse_minus(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
 
 
 // NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
+static bool parse_autolink(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
+    if (!valid_symbols[AUTOLINK_OPEN] || lexer->lookahead != '<') {
+        return false;
+    }
+    uint16_t start_indentation = s->indentation;
+    uint8_t start_column = s->column;
+    advance(s, lexer); // consume '<'
+    // GATE token: the emitted token is ONLY the opening `<`.  mark_end right
+    // after the `<` so the parser re-parses the content with ordinary grammar
+    // rules (named `uri` / `email` children).  The scan below validates ahead
+    // that a well-formed URI/email is closed by `>` on the same line; if so we
+    // return with the token already bounded to just the `<`.
+    mark_end(s, lexer); // token = the single '<' gate
+
+    // URI candidate: [A-Za-z][A-Za-z0-9+.\-]{1,31} ':' [^<> \t\n\r]+
+    bool uri_ok = true;
+    uint32_t uri_scheme_len = 0;
+    bool uri_seen_colon = false;
+    bool uri_has_rest = false;
+    // Email candidate: [A-Za-z0-9._%+\-]+ '@' [A-Za-z0-9.\-]+ (\.[A-Za-z0-9\-]+)+
+    bool email_ok = true;
+    uint32_t email_local_len = 0;
+    bool email_seen_at = false;
+    uint32_t email_labels = 0;
+    bool email_domain_has_char = false;
+
+    // Scan the content run [^<> \t\n\r]+ up to the closing `>`.
+    while (lexer->lookahead != '<' && lexer->lookahead != '>' &&
+           lexer->lookahead != ' ' && lexer->lookahead != '\t' &&
+           lexer->lookahead != '\n' && lexer->lookahead != '\r' &&
+           !lexer->eof(lexer)) {
+        int32_t c = lexer->lookahead;
+
+        // URI scheme tracking.
+        if (!uri_seen_colon && uri_ok) {
+            if (uri_scheme_len == 0) {
+                if (is_ascii_alpha(c)) {
+                    uri_scheme_len = 1;
+                } else {
+                    uri_ok = false;
+                }
+            } else if (c == ':') {
+                if (uri_scheme_len >= 1 && uri_scheme_len <= 32) {
+                    uri_seen_colon = true;
+                } else {
+                    uri_ok = false;
+                }
+            } else if (is_ascii_alnum(c) || c == '+' || c == '.' || c == '-') {
+                uri_scheme_len++;
+            } else {
+                uri_ok = false;
+            }
+        } else if (uri_seen_colon) {
+            uri_has_rest = true;
+        }
+
+        // Email tracking.
+        if (email_ok) {
+            if (!email_seen_at) {
+                if (c == '@') {
+                    if (email_local_len >= 1) {
+                        email_seen_at = true;
+                        email_labels = 0;
+                        email_domain_has_char = false;
+                    } else {
+                        email_ok = false;
+                    }
+                } else if (is_ascii_alnum(c) || c == '.' || c == '_' ||
+                           c == '%' || c == '+' || c == '-') {
+                    email_local_len++;
+                } else {
+                    email_ok = false;
+                }
+            } else {
+                // domain
+                if (c == '.') {
+                    if (!email_domain_has_char) {
+                        email_ok = false;
+                    } else {
+                        email_labels++;
+                    }
+                    email_domain_has_char = false;
+                } else if (is_ascii_alnum(c) || c == '-') {
+                    email_domain_has_char = true;
+                } else {
+                    email_ok = false;
+                }
+            }
+        }
+
+        advance(s, lexer);
+    }
+
+    // The run must be terminated by `>`.
+    if (lexer->lookahead != '>') {
+        s->indentation = start_indentation;
+        s->column = start_column;
+        return false;
+    }
+    advance(s, lexer); // consume '>' (scan-ahead only; token end stays at '<')
+
+    bool matched = false;
+    if (uri_ok && uri_seen_colon && uri_has_rest) {
+        matched = true;
+    }
+    if (!matched && email_ok && email_seen_at) {
+        // Count the final domain label and require at least two labels.
+        if (email_domain_has_char) {
+            email_labels++;
+        }
+        if (email_labels >= 2) {
+            matched = true;
+        }
+    }
+
+    if (matched) {
+        lexer->result_symbol = AUTOLINK_OPEN;
+        return true;
+    }
+    s->indentation = start_indentation;
+    s->column = start_column;
+    return false;
+}
+// NOLINTEND(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
+
+
+// NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
 static bool parse_html_block(Scanner *s, TSLexer *lexer,
-                             const bool *valid_symbols) {
+                              const bool *valid_symbols) {
     if (!(valid_symbols[HTML_BLOCK_1_START] ||
           valid_symbols[HTML_BLOCK_1_END] ||
           valid_symbols[HTML_BLOCK_2_START] ||
@@ -1659,6 +2335,39 @@ static bool parse_pipe_table(Scanner *s, TSLexer *lexer,
 // NOLINTEND(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
 
 
+// NOLINTNEXTLINE(readability-identifier-length)
+static bool any_block_start_valid(const bool *valid_symbols) {
+    return valid_symbols[BLOCK_QUOTE_START] ||
+           valid_symbols[INDENTED_CHUNK_START] ||
+           valid_symbols[ATX_H1_MARKER] || valid_symbols[ATX_H2_MARKER] ||
+           valid_symbols[ATX_H3_MARKER] || valid_symbols[ATX_H4_MARKER] ||
+           valid_symbols[ATX_H5_MARKER] || valid_symbols[ATX_H6_MARKER] ||
+           valid_symbols[SETEXT_H1_UNDERLINE] ||
+           valid_symbols[SETEXT_H2_UNDERLINE] ||
+           valid_symbols[THEMATIC_BREAK] ||
+           valid_symbols[LIST_MARKER_MINUS] || valid_symbols[LIST_MARKER_PLUS] ||
+           valid_symbols[LIST_MARKER_STAR] || valid_symbols[LIST_MARKER_PARENTHESIS] ||
+           valid_symbols[LIST_MARKER_DOT] ||
+           valid_symbols[LIST_MARKER_MINUS_DONT_INTERRUPT] ||
+           valid_symbols[LIST_MARKER_PLUS_DONT_INTERRUPT] ||
+           valid_symbols[LIST_MARKER_STAR_DONT_INTERRUPT] ||
+           valid_symbols[LIST_MARKER_PARENTHESIS_DONT_INTERRUPT] ||
+           valid_symbols[LIST_MARKER_DOT_DONT_INTERRUPT] ||
+           valid_symbols[TASK_LIST_MARKER_CHECKED] ||
+           valid_symbols[TASK_LIST_MARKER_UNCHECKED] ||
+           valid_symbols[MATH_BLOCK_OPEN_DELIMITER] ||
+           valid_symbols[DIRECTIVE_BLOCK_OPEN_DELIMITER] ||
+           valid_symbols[FENCED_CODE_BLOCK_START_BACKTICK] ||
+           valid_symbols[FENCED_CODE_BLOCK_START_TILDE] ||
+           valid_symbols[BLANK_LINE_START] ||
+           valid_symbols[HTML_BLOCK_1_START] || valid_symbols[HTML_BLOCK_2_START] ||
+           valid_symbols[HTML_BLOCK_3_START] || valid_symbols[HTML_BLOCK_4_START] ||
+           valid_symbols[HTML_BLOCK_5_START] || valid_symbols[HTML_BLOCK_6_START] ||
+           valid_symbols[HTML_BLOCK_7_START] ||
+           valid_symbols[MINUS_METADATA] || valid_symbols[PLUS_METADATA] ||
+           valid_symbols[PIPE_TABLE_START];
+}
+
 // NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
 static bool scan(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
     // A normal tree-sitter rule decided that the current branch is invalid and
@@ -1695,12 +2404,20 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
 
     if (!(s->state & STATE_MATCHING)) {
         // Parse any preceeding whitespace and remember its length. This makes a
-        // lot of parsing quite a bit easier.
-        for (;;) {
-            if (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
-                add_indentation(&s->indentation, advance(s, lexer));
-            } else {
-                break;
+        // lot of parsing quite a bit easier.  Skip this entirely when we are
+        // tokenizing inline content (no block-start token is valid): there the
+        // whitespace belongs to the surrounding text, and consuming it here
+        // would fold it into the start of the next inline external token
+        // (e.g. `autolink` would absorb the space before `<`).  In that case
+        // scan() returns false on the whitespace and the inline text rule
+        // consumes it; the next scan() call then starts at the real token.
+        if (any_block_start_valid(valid_symbols)) {
+            for (;;) {
+                if (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
+                    add_indentation(&s->indentation, advance(s, lexer));
+                } else {
+                    break;
+                }
             }
         }
         // We are not matching. This is where the parsing logic for most
@@ -1731,19 +2448,29 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
                 }
                 break;
             case '`':
-                // A backtick could mark the beginning or ending of a fenced
-                // code block.
-                return parse_fenced_code_block(s, '`', lexer, valid_symbols);
+                // A backtick could be a fenced code block (```) or an inline
+                // code span (1-2 backticks).  parse_backtick() handles both
+                // atomically, emitting an INLINE_CODE_BACKTICK_*_OPEN only
+                // when a matching closer run exists before the next block
+                // boundary.
+                return parse_backtick(s, lexer, valid_symbols);
             case '~':
-                // A tilde could mark the beginning or ending of a fenced code
-                // block.
-                return parse_fenced_code_block(s, '~', lexer, valid_symbols);
+                // A tilde could be a fenced code block (~~~) or a strikethrough
+                // (~~).  parse_tilde() handles both atomically, emitting
+                // STRIKETHROUGH_OPEN when the run is exactly two tildes.
+                return parse_tilde(s, lexer, valid_symbols);
             case '*':
-                // A star could either mark  a list item or a thematic break.
-                // This code is similar to the code for '_' and '+'.
+                // A star could be a list marker, thematic break, or emphasis
+                // open/close.  parse_star() handles all cases atomically,
+                // including emitting EMPHASIS_STAR_OPEN when the star is not
+                // a block-level token.
                 return parse_star(s, lexer, valid_symbols);
             case '_':
-                return parse_thematic_break_underscore(s, lexer, valid_symbols);
+                // An underscore could be a thematic break or an emphasis
+                // open/close.  parse_underscore() handles all cases atomically,
+                // including emitting EMPHASIS_UNDERSCORE_OPEN when the
+                // underscore is not a block-level token.
+                return parse_underscore(s, lexer, valid_symbols);
             case '>':
                 // A '>' could mark the beginning of a block quote
                 return parse_block_quote(s, lexer, valid_symbols);
@@ -1774,11 +2501,41 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
                 // setext underline
                 return parse_minus(s, lexer, valid_symbols);
             case '[':
-                return parse_task_list_marker(s, lexer, valid_symbols);
+                // A '[' could start a task list marker (`- [ ]`), a footnote
+                // reference (`[^id]`), or a plain bracket (link label).
+                // parse_bracket_open() disambiguates by the character after
+                // the '[' and degrades to an ordinary bracket when neither
+                // applies.
+                return parse_bracket_open(s, lexer, valid_symbols);
             case '$':
                 return parse_math_inline_delimiter(s, lexer, valid_symbols);
+            case ':':
+                // A colon could mark a directive block delimiter (`:::`).
+                // parse_colon() emits DIRECTIVE_BLOCK_OPEN/CLOSE_DELIMITER for
+                // a run of EXACTLY three colons; shorter/longer runs degrade
+                // to ordinary text.
+                return parse_colon(s, lexer, valid_symbols);
             case '<':
-                // A < could mark the beginning of a html block
+                // A < could be an autolink (inline) or the beginning of a
+                // html block.  parse_autolink() validates the whole `<...>`
+                // span and requires a closing `>`, emitting only the opening
+                // `<` (the AUTOLINK_OPEN gate); it only runs when the
+                // AUTOLINK_OPEN token is expected AND no block-HTML token is
+                // valid (a block HTML tag takes precedence at line start).
+                // Trying autolink first does NOT work: on a non-match it
+                // consumes the `<` + content before returning false, and the
+                // scanner cannot rewind within one call, so the html block
+                // would start at the wrong position.
+                if (valid_symbols[AUTOLINK_OPEN] &&
+                    !(valid_symbols[HTML_BLOCK_1_START] ||
+                      valid_symbols[HTML_BLOCK_2_START] ||
+                      valid_symbols[HTML_BLOCK_3_START] ||
+                      valid_symbols[HTML_BLOCK_4_START] ||
+                      valid_symbols[HTML_BLOCK_5_START] ||
+                      valid_symbols[HTML_BLOCK_6_START] ||
+                      valid_symbols[HTML_BLOCK_7_START])) {
+                    return parse_autolink(s, lexer, valid_symbols);
+                }
                 return parse_html_block(s, lexer, valid_symbols);
             default:
                 break;

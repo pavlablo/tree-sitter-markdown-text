@@ -50,3 +50,5 @@ zig-out/
 *.tar.gz
 *.tgz
 *.zip
+.kilo
+TODO-emphasis-fix.md

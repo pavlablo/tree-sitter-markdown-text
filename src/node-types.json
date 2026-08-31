@@ -393,11 +393,6 @@
     }
   },
   {
-    "type": "directive_block_delimiter",
-    "named": true,
-    "fields": {}
-  },
-  {
     "type": "directive_name",
     "named": true,
     "fields": {}
@@ -541,11 +536,6 @@
     }
   },
   {
-    "type": "emphasis_delimiter",
-    "named": true,
-    "fields": {}
-  },
-  {
     "type": "fenced_code_block",
     "named": true,
     "fields": {},
@@ -615,11 +605,6 @@
     }
   },
   {
-    "type": "footnote_label_open",
-    "named": true,
-    "fields": {}
-  },
-  {
     "type": "footnote_reference",
     "named": true,
     "fields": {},
@@ -640,11 +625,6 @@
   },
   {
     "type": "footnote_reference_label",
-    "named": true,
-    "fields": {}
-  },
-  {
-    "type": "footnote_reference_open",
     "named": true,
     "fields": {}
   },
@@ -921,11 +901,6 @@
         }
       ]
     }
-  },
-  {
-    "type": "inline_code_delimiter",
-    "named": true,
-    "fields": {}
   },
   {
     "type": "inline_link",
@@ -1297,11 +1272,6 @@
         }
       ]
     }
-  },
-  {
-    "type": "math_block_delimiter",
-    "named": true,
-    "fields": {}
   },
   {
     "type": "math_inline",
@@ -1746,11 +1716,6 @@
     }
   },
   {
-    "type": "strikethrough_delimiter",
-    "named": true,
-    "fields": {}
-  },
-  {
     "type": "strong",
     "named": true,
     "fields": {},
@@ -1863,11 +1828,6 @@
         }
       ]
     }
-  },
-  {
-    "type": "strong_delimiter",
-    "named": true,
-    "fields": {}
   },
   {
     "type": "task_list_item",
@@ -2088,10 +2048,6 @@
     "named": false
   },
   {
-    "type": "**",
-    "named": false
-  },
-  {
     "type": "+",
     "named": false
   },
@@ -2125,10 +2081,6 @@
   },
   {
     "type": "::",
-    "named": false
-  },
-  {
-    "type": ":::",
     "named": false
   },
   {
@@ -2188,10 +2140,6 @@
     "named": false
   },
   {
-    "type": "[^",
-    "named": false
-  },
-  {
     "type": "\\",
     "named": false
   },
@@ -2212,15 +2160,7 @@
     "named": false
   },
   {
-    "type": "__",
-    "named": false
-  },
-  {
     "type": "`",
-    "named": false
-  },
-  {
-    "type": "``",
     "named": false
   },
   {
@@ -2256,7 +2196,15 @@
     "named": true
   },
   {
+    "type": "directive_block_delimiter",
+    "named": true
+  },
+  {
     "type": "email",
+    "named": true
+  },
+  {
+    "type": "emphasis_delimiter",
     "named": true
   },
   {
@@ -2265,6 +2213,14 @@
   },
   {
     "type": "fenced_code_block_delimiter",
+    "named": true
+  },
+  {
+    "type": "footnote_label_open",
+    "named": true
+  },
+  {
+    "type": "footnote_reference_open",
     "named": true
   },
   {
@@ -2297,6 +2253,14 @@
   },
   {
     "type": "inline_code_content",
+    "named": true
+  },
+  {
+    "type": "inline_code_delimiter",
+    "named": true
+  },
+  {
+    "type": "math_block_delimiter",
     "named": true
   },
   {
@@ -2356,6 +2320,14 @@
     "named": true
   },
   {
+    "type": "strikethrough_delimiter",
+    "named": true
+  },
+  {
+    "type": "strong_delimiter",
+    "named": true
+  },
+  {
     "type": "task_list_marker_checked",
     "named": true
   },
@@ -2385,10 +2357,6 @@
   },
   {
     "type": "~",
-    "named": false
-  },
-  {
-    "type": "~~",
     "named": false
   },
   {
