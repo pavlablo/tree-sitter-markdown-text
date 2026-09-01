@@ -838,6 +838,29 @@ static bool has_closing_delimiter(TSLexer *lexer,
         }
         prev_was_newline = false;
 
+        // For the text-inline delimiters (`*`, `_`, `~`) an unescaped `|` is a
+        // table-cell boundary: a closer must not cross it, otherwise a
+        // delimiter opened in one cell would match a closer in the next cell
+        // and merge the two cells.  Backslash-escaped characters (`\|`) are
+        // literal cell content and do not bound the search.
+        if (close_char == '*' || close_char == '_' || close_char == '~') {
+            if (ch == '\\') {
+                // Skip the backslash and the escaped character so an escaped
+                // `\|` is not seen as a boundary.
+                lexer->advance(lexer, false);
+                if (!lexer->eof(lexer) &&
+                    lexer->lookahead != '\n' && lexer->lookahead != '\r') {
+                    lexer->advance(lexer, false);
+                }
+                run = 0;
+                prev_was_newline = false;
+                continue;
+            }
+            if (ch == '|') {
+                return false;
+            }
+        }
+
         if (ch == close_char) {
             run++;
             lexer->advance(lexer, false);
@@ -890,6 +913,29 @@ static bool has_closing_delimiter_ge(TSLexer *lexer,
             return false;
         }
         prev_was_newline = false;
+
+        // For the text-inline delimiters (`*`, `_`, `~`) an unescaped `|` is a
+        // table-cell boundary: a closer must not cross it, otherwise a
+        // delimiter opened in one cell would match a closer in the next cell
+        // and merge the two cells.  Backslash-escaped characters (`\|`) are
+        // literal cell content and do not bound the search.
+        if (close_char == '*' || close_char == '_' || close_char == '~') {
+            if (ch == '\\') {
+                // Skip the backslash and the escaped character so an escaped
+                // `\|` is not seen as a boundary.
+                lexer->advance(lexer, false);
+                if (!lexer->eof(lexer) &&
+                    lexer->lookahead != '\n' && lexer->lookahead != '\r') {
+                    lexer->advance(lexer, false);
+                }
+                run = 0;
+                prev_was_newline = false;
+                continue;
+            }
+            if (ch == '|') {
+                return false;
+            }
+        }
 
         if (ch == close_char) {
             run++;
