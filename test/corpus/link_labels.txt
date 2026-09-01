@@ -140,7 +140,7 @@ Trailing paragraph.
           (word_token)
           (terminator))))))
 ================================================================================
-Nested shortcut link breaks the outer label
+Nested brackets in a label keep the outer link
 ================================================================================
 [a [nested] link](url)
 Trailing paragraph.
@@ -150,26 +150,22 @@ Trailing paragraph.
   (section
     (paragraph
       (inline
-        (text_span
-          (bracket)
-          (word_token))
-        (shortcut_link
+        (inline_link
           (link_label
             (text_span
-              (word_token))))
-        (text_span
-          (word_token)
-          (bracket)
-          (bracket)
-          (word_token)
-          (bracket))
+              (word_token))
+            (text_span
+              (word_token))
+            (text_span
+              (word_token)))
+          (link_destination))
         (text_span
           (word_token))
         (text_span
           (word_token)
           (terminator))))))
 ================================================================================
-Nested inline link wins over the outer label
+Nested bracket group with destination in a label keeps the outer link
 ================================================================================
 [foo [bar](/uri)](/uri)
 Trailing paragraph.
@@ -179,20 +175,18 @@ Trailing paragraph.
   (section
     (paragraph
       (inline
-        (text_span
-          (bracket)
-          (word_token))
         (inline_link
           (link_label
             (text_span
-              (word_token)))
+              (word_token))
+            (text_span
+              (word_token))
+            (text_span
+              (bracket)
+              (operator_like)
+              (word_token)
+              (bracket)))
           (link_destination))
-        (text_span
-          (bracket)
-          (bracket)
-          (operator_like)
-          (word_token)
-          (bracket))
         (text_span
           (word_token))
         (text_span

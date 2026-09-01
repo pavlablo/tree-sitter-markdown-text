@@ -453,6 +453,10 @@
           "named": true
         },
         {
+          "type": "block_continuation",
+          "named": true
+        },
+        {
           "type": "bracket",
           "named": true
         },
@@ -821,7 +825,15 @@
           "named": true
         },
         {
+          "type": "backslash_escape",
+          "named": true
+        },
+        {
           "type": "block_continuation",
+          "named": true
+        },
+        {
+          "type": "bracket",
           "named": true
         },
         {
@@ -845,6 +857,10 @@
           "named": true
         },
         {
+          "type": "identifier_like_token",
+          "named": true
+        },
+        {
           "type": "image",
           "named": true
         },
@@ -865,6 +881,18 @@
           "named": true
         },
         {
+          "type": "numeric_token",
+          "named": true
+        },
+        {
+          "type": "path_like_token",
+          "named": true
+        },
+        {
+          "type": "separator",
+          "named": true
+        },
+        {
           "type": "shortcut_link",
           "named": true
         },
@@ -877,7 +905,15 @@
           "named": true
         },
         {
+          "type": "terminator",
+          "named": true
+        },
+        {
           "type": "text_span",
+          "named": true
+        },
+        {
+          "type": "word_token",
           "named": true
         }
       ]
@@ -1392,7 +1428,17 @@
   {
     "type": "pipe_table_cell",
     "named": true,
-    "fields": {}
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "inline",
+          "named": true
+        }
+      ]
+    }
   },
   {
     "type": "pipe_table_delimiter_cell",
@@ -1633,6 +1679,10 @@
           "named": true
         },
         {
+          "type": "block_continuation",
+          "named": true
+        },
+        {
           "type": "bracket",
           "named": true
         },
@@ -1744,6 +1794,10 @@
       "types": [
         {
           "type": "autolink",
+          "named": true
+        },
+        {
+          "type": "block_continuation",
           "named": true
         },
         {

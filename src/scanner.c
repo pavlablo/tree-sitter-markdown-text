@@ -720,12 +720,10 @@ static bool scan_metadata_block(Scanner *s, TSLexer *lexer,
 //                       the common `---` / `***` / `___` forms; it will also
 //                       fire for `- item` (list marker), which is acceptable
 //                       because list items are another CommonMark interrupt.
+//   Setext underline  : line starts with `=` (setext H1 underline).
+//   Ordered list      : line starts with an ASCII digit (`1. ` / `1) `).
 //
 // NOT covered (known limitations — tracked for future work):
-//   - Setext heading underlines (=== / ---): the `---` form overlaps with
-//     thematic break and is caught there; `===` is not detected.
-//   - Ordered/unordered list items in general (beyond the first-char `*/-`
-//     check above): detecting `1. ` or `- ` properly needs more lookahead.
 //   - HTML block start tags: complex to detect correctly in raw-text scan.
 //   - Indented code blocks: require column-counting, not feasible here.
 //   - Underscore-emphasis closer as the ONLY character on a new line
@@ -765,6 +763,22 @@ static bool looks_like_block_start(TSLexer *lexer) {
     // `_` covers `___` thematic break.
     // These are all valid paragraph-interrupting elements.
     if (ch == '-' || ch == '_') {
+        return true;
+    }
+
+    // Setext heading underline (`===`).  A line beginning with `=` at line
+    // start is overwhelmingly a setext H1 underline in practice; treating it
+    // as a block start stops an unclosed inline delimiter from swallowing it.
+    if (ch == '=') {
+        return true;
+    }
+
+    // Ordered list marker (`1. ` / `1) `).  A line beginning with an ASCII
+    // digit at line start is overwhelmingly an ordered-list item (or a setext
+    // H2-style continuation).  This is a conservative first-character check in
+    // the safe direction: a prose line that merely starts with a digit will
+    // stop the emphasis search and degrade to text, never to ERROR/runaway.
+    if (is_ascii_digit(ch)) {
         return true;
     }
 
@@ -832,6 +846,57 @@ static bool has_closing_delimiter(TSLexer *lexer,
             // close_len==2 and the text has `***`, only `**` would match, but
             // the third `*` makes this a run of 3, not 2.
             if (run == close_len && lexer->lookahead != close_char) {
+                return true;
+            }
+        } else {
+            run = 0;
+            lexer->advance(lexer, false);
+        }
+    }
+    return false;
+}
+// NOLINTEND(readability-identifier-length,readability-function-cognitive-complexity)
+
+// Variant of has_closing_delimiter for STRONG delimiters only: a closing run
+// of length >= `close_len` counts as a closer (CommonMark-correct run
+// splitting, e.g. `**a***` closes the strong with the first two `*` of the
+// trailing `***`).  This is deliberately NOT used for emphasis (close_len 1):
+// there an exact run is required so a `**` strong run is never mistaken for a
+// single `*` emphasis closer, preserving `*a **b** c*` nesting.  Block-boundary
+// semantics are identical to has_closing_delimiter.
+// NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity)
+static bool has_closing_delimiter_ge(TSLexer *lexer,
+                                     int32_t close_char,
+                                     uint32_t close_len) {
+    bool prev_was_newline = false;
+    uint32_t run = 0;
+
+    while (!lexer->eof(lexer)) {
+        int32_t ch = lexer->lookahead;
+
+        if (ch == '\n' || ch == '\r') {
+            if (prev_was_newline) {
+                // Empty line — block boundary, stop.
+                return false;
+            }
+            prev_was_newline = true;
+            run = 0;
+            lexer->advance(lexer, false);
+            continue;
+        }
+
+        // First non-newline character of a new line: check for block start.
+        if (prev_was_newline && looks_like_block_start(lexer)) {
+            return false;
+        }
+        prev_was_newline = false;
+
+        if (ch == close_char) {
+            run++;
+            lexer->advance(lexer, false);
+            // A closing run of length >= close_len (not just ==) counts, so a
+            // `***` run can close a `**` strong.
+            if (run >= close_len && lexer->lookahead != close_char) {
                 return true;
             }
         } else {
@@ -1282,22 +1347,22 @@ static bool parse_star(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
             });
     }
 
-    // Strong close: exactly two consecutive stars (no third).  A longer closing
-    // run falls through and degrades to text (has_closing_delimiter's exact-run
-    // semantics do not support `***` nesting — see note in has_closing_delimiter).
-    if (strong_close && consecutive == 2) {
+    // Strong close: at least two consecutive stars (no trailing space).  A run
+    // of 3 (`***`) closes the strong with its first two `*` (run-splitting);
+    // the leftover `*` is re-scanned separately and degrades to text.
+    if (strong_close && consecutive >= 2) {
         // mark_end already committed at the two-star boundary.
         lexer->result_symbol = STRONG_STAR_CLOSE;
         return true;
     }
     // Strong open: at least two consecutive stars, no trailing space, not at
     // end of line (left-flanking simplified rule), and a matching `**` closer
-    // exists before the next block boundary.
+    // (run of >= 2) exists before the next block boundary.
     if (strong_open && consecutive >= 2 && !line_end && extra_indentation == 0 &&
         !lexer->eof(lexer)) {
         // mark_end already committed at the two-star boundary, so the token
         // length is correct even though has_closing_delimiter advances further.
-        if (has_closing_delimiter(lexer, '*', 2)) {
+        if (has_closing_delimiter_ge(lexer, '*', 2)) {
             lexer->result_symbol = STRONG_STAR_OPEN;
             return true;
         }
@@ -1399,21 +1464,24 @@ static bool parse_underscore(Scanner *s, TSLexer *lexer,
         return true;
     }
 
-    // Strong close: exactly two consecutive underscores (no third).
-    if (strong_close && consecutive == 2) {
+    // Strong close: at least two consecutive underscores (no trailing space).
+    // A run of 3 (`___`) closes the strong with its first two `_`
+    // (run-splitting); the leftover `_` is re-scanned separately and degrades
+    // to text.
+    if (strong_close && consecutive >= 2) {
         // mark_end already committed at the two-underscore boundary.
         lexer->result_symbol = STRONG_UNDERSCORE_CLOSE;
         return true;
     }
     // Strong open: at least two consecutive underscores, no trailing space,
     // not at end of line (left-flanking simplified rule), and a matching `__`
-    // closer exists before the next block boundary.
+    // closer (run of >= 2) exists before the next block boundary.
     if (strong_open && consecutive >= 2 && !line_end && extra_indentation == 0 &&
         !lexer->eof(lexer)) {
         // mark_end already committed at the two-underscore boundary, so the
         // token length is correct even though has_closing_delimiter advances
         // further.
-        if (has_closing_delimiter(lexer, '_', 2)) {
+        if (has_closing_delimiter_ge(lexer, '_', 2)) {
             lexer->result_symbol = STRONG_UNDERSCORE_OPEN;
             return true;
         }

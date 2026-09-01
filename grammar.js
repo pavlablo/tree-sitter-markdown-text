@@ -80,6 +80,19 @@ export default grammar({
     //    closes at the first unescaped `]`.
     link_label: ($) => seq('[', repeat1(choice(
       $._inline_label_element,
+      $._label_nested_brackets,
+      $._soft_line_break,
+    )), ']'),
+
+    // A balanced square-bracket group nested inside a link label.  Per
+    // CommonMark §6.3 a link label may contain balanced brackets (e.g.
+    // `[link with [nested] text]`); the inner `[...]` is literal label text,
+    // not a nested link.  Recursive so arbitrarily deep nesting is accepted;
+    // the label itself closes only at the bracket that balances the opening
+    // `[`, not at the first `]` that closes an inner group.
+    _label_nested_brackets: ($) => seq('[', repeat(choice(
+      $._inline_label_element,
+      $._label_nested_brackets,
       $._soft_line_break,
     )), ']'),
 
@@ -525,6 +538,9 @@ export default grammar({
         optional($._no_indented_chunk),
         $.link_title,
       ))),
+      // CommonMark permits trailing whitespace after the destination (or after
+      // an optional title) before the line ending, e.g. `[a]: https://x.com   `.
+      optional($._whitespace),
       choice($._newline, $._soft_line_break, $._eof),
     )),
     _text_inline_no_link: ($) => choice($._word, $._whitespace, punctuation_without($, ['[', ']'])),
@@ -997,6 +1013,7 @@ export default grammar({
     // in the scanner (has_closing_delimiter).
     _inline_no_strikethrough: ($) => choice(
       $._whitespace,
+      $._soft_line_break,
       $.inline_code,
       $.autolink,
       $.html_inline,
@@ -1035,6 +1052,7 @@ export default grammar({
     )),
     _inline_no_strong: ($) => choice(
       $._whitespace,
+      $._soft_line_break,
       $.inline_code,
       $.autolink,
       $.html_inline,
@@ -1072,6 +1090,7 @@ export default grammar({
     // the scanner (has_closing_delimiter).
     _inline_no_emphasis: ($) => choice(
       $._whitespace,
+      $._soft_line_break,
       $.inline_code,
       $.autolink,
       $.html_inline,
@@ -1165,19 +1184,49 @@ export default grammar({
       ),
     ),
 
-    pipe_table_cell: ($) => prec.right(seq(
-      choice(
-        $._word,
-        $._backslash_escape,
-        punctuation_without($, ['|']),
-      ),
-      repeat(choice(
-        $._word,
-        $._whitespace,
-        $._backslash_escape,
-        punctuation_without($, ['|']),
-      )),
-    )),
+    pipe_table_cell: ($) => prec.right(alias($._pipe_table_inline_content, $.inline)),
+
+    // Structured inline content inside a table cell.  Consumers can now query
+    // links, emphasis, strong, etc. inside cells.  The `|` column separator is
+    // deliberately excluded from every token here so a bare `|` still splits
+    // cells; `_pipe_table_operator_like` is `operator_like` minus `|`.
+    _pipe_table_inline_content: ($) => prec.right(repeat1(choice(
+      $._whitespace,
+      $.inline_code,
+      $.autolink,
+      $.html_inline,
+      $.mdx_jsx_inline,
+      $.math_inline,
+      $.image,
+      $.footnote_reference,
+      $.inline_link,
+      $.full_reference_link,
+      $.collapsed_reference_link,
+      $.shortcut_link,
+      $.strong,
+      $.emphasis,
+      $.strikethrough,
+      $.backslash_escape,
+      $._pipe_table_text_span,
+    ))),
+    _pipe_table_text_span: ($) => prec.right(repeat1(choice(
+      $.numeric_token,
+      $.path_like_token,
+      $.identifier_like_token,
+      $.word_token,
+      $.terminator,
+      $.separator,
+      $.bracket,
+      $._pipe_table_operator_like,
+    ))),
+    _pipe_table_operator_like: ($) => choice(
+      '::', '->', '=>',
+      alias($._dollar_dollar_inline, '$$'),
+      $._unicode_symbol_run,
+      $._unicode_punctuation_run,
+      '=', '+', '-', '*', '/', '&',
+      '"', '#', '$', '%', '\'', '@', '\\', '^', '_', '`', '~',
+    ),
   },
 
   externals: ($) => [
@@ -1311,6 +1360,9 @@ export default grammar({
     [$.footnote_reference, $.text_span],
     [$.footnote_reference, $.bracket],
     [$.link_reference_definition, $._inline_element],
+    [$.pipe_table_row, $.pipe_table_cell, $._pipe_table_inline_content],
+    [$.pipe_table_row, $._pipe_table_inline_content],
+    [$._pipe_table_inline_content],
   ],
   extras: ($) => [],
 });

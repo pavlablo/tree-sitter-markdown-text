@@ -23,7 +23,7 @@
     }
   ],
   "metadata": {
-    "version": "0.2.1",
+    "version": "1.1.0",
     "license": "MIT",
     "description": "Markdown grammar for tree-sitter, with a textlint-style AST shape",
     "authors": [

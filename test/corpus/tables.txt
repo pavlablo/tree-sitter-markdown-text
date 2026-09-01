@@ -11,16 +11,28 @@ Trailing paragraph.
   (section
     (pipe_table
       (pipe_table_header
-        (pipe_table_cell)
-        (pipe_table_cell))
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token))))
       (pipe_table_delimiter_row
         (pipe_table_delimiter_cell)
         (pipe_table_delimiter_cell))
       (pipe_table_row
-        (pipe_table_cell)
-        (pipe_table_cell))
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token))))
       (pipe_table_row
-        (pipe_table_cell)))))
+        (pipe_table_cell
+          (inline
+            (word_token)
+            (word_token)
+            (terminator)))))))
 
 ================================================================================
 Pipe table with alignment markers
@@ -35,9 +47,15 @@ Trailing paragraph.
   (section
     (pipe_table
       (pipe_table_header
-        (pipe_table_cell)
-        (pipe_table_cell)
-        (pipe_table_cell))
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token))))
       (pipe_table_delimiter_row
         (pipe_table_delimiter_cell
           (pipe_table_align_left))
@@ -47,8 +65,62 @@ Trailing paragraph.
         (pipe_table_delimiter_cell
           (pipe_table_align_right)))
       (pipe_table_row
-        (pipe_table_cell)
-        (pipe_table_cell)
-        (pipe_table_cell))
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token))))
       (pipe_table_row
-        (pipe_table_cell)))))
+        (pipe_table_cell
+          (inline
+            (word_token)
+            (word_token)
+            (terminator)))))))
+
+================================================================================
+Pipe table cells parse inline links and emphasis
+================================================================================
+| A | B |
+|---|---|
+| [link](url) | **bold** |
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (pipe_table
+      (pipe_table_header
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_delimiter_row
+        (pipe_table_delimiter_cell)
+        (pipe_table_delimiter_cell))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (inline_link
+              (link_label
+                (text_span
+                  (word_token)))
+              (link_destination))))
+        (pipe_table_cell
+          (inline
+            (strong
+              (strong_delimiter)
+              (strong_content
+                (word_token))
+              (strong_delimiter)))))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (word_token)
+            (word_token)
+            (terminator)))))))

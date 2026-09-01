@@ -1141,3 +1141,189 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+================================================================================
+Strong closed by a longer star run: **a***
+================================================================================
+**a***
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Strong closed by a four-star run: **a****
+================================================================================
+**a****
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (operator_like)
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Strong followed by unpaired stars: **a**b**
+================================================================================
+**a**b**
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (word_token)
+          (operator_like)
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Triple-star emphasis degrades to strong plus literal star
+================================================================================
+***both***
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (operator_like)
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Multiline emphasis parses without error
+================================================================================
+*foo
+bar baz*
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (emphasis
+          (emphasis_delimiter)
+          (emphasis_content
+            (word_token)
+            (word_token)
+            (word_token))
+          (emphasis_delimiter))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Unclosed emphasis stops before an ordered list
+================================================================================
+*foo
+1. bar
+*close
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like)
+          (word_token))))
+    (list
+      (list_item
+        (list_marker_dot)
+        (paragraph
+          (inline
+            (text_span
+              (word_token))
+            (text_span
+              (operator_like)
+              (word_token))
+            (text_span
+              (word_token))
+            (text_span
+              (word_token)
+              (terminator))))))))
+
+================================================================================
+Unclosed emphasis stops before a setext underline
+================================================================================
+*foo
+===
+*close
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (setext_heading
+      heading_content: (paragraph
+        (inline
+          (text_span
+            (operator_like)
+            (word_token))))
+      level: (setext_h1_underline))
+    (paragraph
+      (inline
+        (text_span
+          (operator_like)
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
