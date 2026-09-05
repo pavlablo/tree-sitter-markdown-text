@@ -6265,6 +6265,10 @@
           "name": "_unicode_punctuation_run"
         },
         {
+          "type": "SYMBOL",
+          "name": "_unicode_mark_run"
+        },
+        {
           "type": "STRING",
           "value": "="
         },
@@ -6356,6 +6360,10 @@
     "_unicode_punctuation_run": {
       "type": "PATTERN",
       "value": "[\\p{P}&&[^\\x00-\\x7F]]+"
+    },
+    "_unicode_mark_run": {
+      "type": "PATTERN",
+      "value": "[\\p{M}&&[^\\x00-\\x7F]]+"
     },
     "inline_code": {
       "type": "CHOICE",

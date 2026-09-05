@@ -133,3 +133,38 @@ Trailing paragraph text.
         (text_span
           (word_token)
           (terminator))))))
+
+================================================================================
+Underscore-prefixed identifier in heading does not swallow a following fenced block
+================================================================================
+## _build_log
+
+```
+code block
+```
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (atx_heading
+      level: (atx_h2_marker)
+      heading_content: (inline
+        (text_span
+          (identifier_like_token))))
+    (blank_line)
+    (fenced_code_block
+      (fenced_code_block_delimiter)
+      (block_continuation)
+      (code_fence_content
+        (block_continuation))
+      (fenced_code_block_delimiter))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))

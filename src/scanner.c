@@ -762,7 +762,7 @@ static bool looks_like_block_start(TSLexer *lexer) {
     // `*` covers `***` thematic break (and would also be a `* item` list).
     // `_` covers `___` thematic break.
     // These are all valid paragraph-interrupting elements.
-    if (ch == '-' || ch == '_') {
+    if (ch == '-' || ch == '_' || ch == '*') {
         return true;
     }
 
@@ -783,6 +783,35 @@ static bool looks_like_block_start(TSLexer *lexer) {
     }
 
     return false;
+}
+// NOLINTEND(readability-identifier-length)
+
+
+// ---------------------------------------------------------------------------
+// line_starts_block: at the first character of a new line (just after a
+// newline), skip any leading whitespace and report whether the first real
+// character begins a block element.  Unlike looks_like_block_start alone, this
+// recognizes INDENTED block starts (e.g. `    * item` or `  # heading`), whose
+// leading spaces would otherwise hide the `*`/`#`/etc. from the first-char
+// check.  A whitespace-only line is treated as a block boundary.
+//
+// This function advances past the leading whitespace (safe: it is used only as
+// a lookahead inside has_closing_delimiter, whose caller restores the lexer
+// position on backtrack).
+// ---------------------------------------------------------------------------
+// NOLINTBEGIN(readability-identifier-length)
+static bool line_starts_block(TSLexer *lexer) {
+    while (!lexer->eof(lexer) &&
+           (lexer->lookahead == ' ' || lexer->lookahead == '\t')) {
+        lexer->advance(lexer, false);
+    }
+    if (lexer->eof(lexer)) {
+        return true;
+    }
+    if (lexer->lookahead == '\n' || lexer->lookahead == '\r') {
+        return true;
+    }
+    return looks_like_block_start(lexer);
 }
 // NOLINTEND(readability-identifier-length)
 
@@ -816,7 +845,7 @@ static bool has_closing_delimiter(TSLexer *lexer,
                                   int32_t close_char,
                                   uint32_t close_len) {
     bool prev_was_newline = false;
-    uint32_t run = 0;
+    int32_t prev_char = 0;
 
     while (!lexer->eof(lexer)) {
         int32_t ch = lexer->lookahead;
@@ -827,16 +856,20 @@ static bool has_closing_delimiter(TSLexer *lexer,
                 return false;
             }
             prev_was_newline = true;
-            run = 0;
+            prev_char = 0;
             lexer->advance(lexer, false);
             continue;
         }
 
-        // First non-newline character of a new line: check for block start.
-        if (prev_was_newline && looks_like_block_start(lexer)) {
-            return false;
+        // First non-newline character of a new line: check for block start
+        // (skipping leading whitespace so indented block starts are seen).
+        if (prev_was_newline) {
+            if (line_starts_block(lexer)) {
+                return false;
+            }
+            prev_was_newline = false;
+            ch = lexer->lookahead;
         }
-        prev_was_newline = false;
 
         // For the text-inline delimiters (`*`, `_`, `~`) an unescaped `|` is a
         // table-cell boundary: a closer must not cross it, otherwise a
@@ -848,12 +881,31 @@ static bool has_closing_delimiter(TSLexer *lexer,
                 // Skip the backslash and the escaped character so an escaped
                 // `\|` is not seen as a boundary.
                 lexer->advance(lexer, false);
+                int32_t escaped = lexer->lookahead;
                 if (!lexer->eof(lexer) &&
-                    lexer->lookahead != '\n' && lexer->lookahead != '\r') {
+                    escaped != '\n' && escaped != '\r') {
+                    lexer->advance(lexer, false);
+                    prev_char = escaped;
+                } else {
+                    prev_char = 0;
+                }
+                continue;
+            }
+            if (ch == '`') {
+                // An inline code span: delimiters inside code never materialize
+                // as closer tokens (the span content is a single inline_code
+                // token), so skip the span to avoid treating them as phantom
+                // closers.  Conservative: does not cross a line break.
+                lexer->advance(lexer, false);
+                while (!lexer->eof(lexer) &&
+                       lexer->lookahead != '`' &&
+                       lexer->lookahead != '\n' && lexer->lookahead != '\r') {
                     lexer->advance(lexer, false);
                 }
-                run = 0;
-                prev_was_newline = false;
+                if (!lexer->eof(lexer) && lexer->lookahead == '`') {
+                    lexer->advance(lexer, false);
+                }
+                prev_char = 0;
                 continue;
             }
             if (ch == '|') {
@@ -862,19 +914,38 @@ static bool has_closing_delimiter(TSLexer *lexer,
         }
 
         if (ch == close_char) {
-            run++;
-            lexer->advance(lexer, false);
-            // Check whether the run ends exactly here (next char ≠ close_char).
-            // We must NOT accept a prefix of a longer run, e.g. when
-            // close_len==2 and the text has `***`, only `**` would match, but
-            // the third `*` makes this a run of 3, not 2.
-            if (run == close_len && lexer->lookahead != close_char) {
+            // Consume the whole run of close_char.
+            uint32_t rlen = 0;
+            do {
+                rlen++;
+                lexer->advance(lexer, false);
+            } while (!lexer->eof(lexer) && lexer->lookahead == close_char);
+
+            // An underscore followed by an alphanumeric is folded by the lexer
+            // into an identifier_like_token / path_like_token / word_token
+            // (e.g. `build_log`, `_components` inside a path), so it never
+            // materializes as a closer token.  Treat it as NOT a closer and
+            // keep scanning; otherwise a delimiter opened earlier would be
+            // considered "closed" by a phantom underscore and run away.  Only
+            // `_` needs this guard: `*`, `~`, `$`, `:`, backtick and `]` are
+            // never part of such a token.
+            if (close_char == '_' &&
+                !lexer->eof(lexer) && is_ascii_alnum(lexer->lookahead)) {
+                prev_char = '_';
+                continue;
+            }
+            // Check whether the run is a valid closer: for close_len, an exact
+            // run is required (e.g. close_len==2 in `***` is a run of 3, not
+            // 2).  The whole run is consumed, so lookahead != close_char here.
+            if (rlen == close_len) {
                 return true;
             }
-        } else {
-            run = 0;
-            lexer->advance(lexer, false);
+            prev_char = '_';
+            continue;
         }
+
+        lexer->advance(lexer, false);
+        prev_char = ch;
     }
     return false;
 }
@@ -886,13 +957,14 @@ static bool has_closing_delimiter(TSLexer *lexer,
 // trailing `***`).  This is deliberately NOT used for emphasis (close_len 1):
 // there an exact run is required so a `**` strong run is never mistaken for a
 // single `*` emphasis closer, preserving `*a **b** c*` nesting.  Block-boundary
-// semantics are identical to has_closing_delimiter.
+// semantics are identical to has_closing_delimiter (including the intraword
+// underscore guard).
 // NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity)
 static bool has_closing_delimiter_ge(TSLexer *lexer,
                                      int32_t close_char,
                                      uint32_t close_len) {
     bool prev_was_newline = false;
-    uint32_t run = 0;
+    int32_t prev_char = 0;
 
     while (!lexer->eof(lexer)) {
         int32_t ch = lexer->lookahead;
@@ -903,16 +975,20 @@ static bool has_closing_delimiter_ge(TSLexer *lexer,
                 return false;
             }
             prev_was_newline = true;
-            run = 0;
+            prev_char = 0;
             lexer->advance(lexer, false);
             continue;
         }
 
-        // First non-newline character of a new line: check for block start.
-        if (prev_was_newline && looks_like_block_start(lexer)) {
-            return false;
+        // First non-newline character of a new line: check for block start
+        // (skipping leading whitespace so indented block starts are seen).
+        if (prev_was_newline) {
+            if (line_starts_block(lexer)) {
+                return false;
+            }
+            prev_was_newline = false;
+            ch = lexer->lookahead;
         }
-        prev_was_newline = false;
 
         // For the text-inline delimiters (`*`, `_`, `~`) an unescaped `|` is a
         // table-cell boundary: a closer must not cross it, otherwise a
@@ -924,12 +1000,31 @@ static bool has_closing_delimiter_ge(TSLexer *lexer,
                 // Skip the backslash and the escaped character so an escaped
                 // `\|` is not seen as a boundary.
                 lexer->advance(lexer, false);
+                int32_t escaped = lexer->lookahead;
                 if (!lexer->eof(lexer) &&
-                    lexer->lookahead != '\n' && lexer->lookahead != '\r') {
+                    escaped != '\n' && escaped != '\r') {
+                    lexer->advance(lexer, false);
+                    prev_char = escaped;
+                } else {
+                    prev_char = 0;
+                }
+                continue;
+            }
+            if (ch == '`') {
+                // An inline code span: delimiters inside code never materialize
+                // as closer tokens (the span content is a single inline_code
+                // token), so skip the span to avoid treating them as phantom
+                // closers.  Conservative: does not cross a line break.
+                lexer->advance(lexer, false);
+                while (!lexer->eof(lexer) &&
+                       lexer->lookahead != '`' &&
+                       lexer->lookahead != '\n' && lexer->lookahead != '\r') {
                     lexer->advance(lexer, false);
                 }
-                run = 0;
-                prev_was_newline = false;
+                if (!lexer->eof(lexer) && lexer->lookahead == '`') {
+                    lexer->advance(lexer, false);
+                }
+                prev_char = 0;
                 continue;
             }
             if (ch == '|') {
@@ -938,17 +1033,35 @@ static bool has_closing_delimiter_ge(TSLexer *lexer,
         }
 
         if (ch == close_char) {
-            run++;
-            lexer->advance(lexer, false);
+            // Consume the whole run of close_char.
+            uint32_t rlen = 0;
+            do {
+                rlen++;
+                lexer->advance(lexer, false);
+            } while (!lexer->eof(lexer) && lexer->lookahead == close_char);
+
+            // An underscore followed by an alphanumeric is folded by the lexer
+            // into an identifier_like_token / path_like_token / word_token
+            // (e.g. `build_log`, `_components` inside a path), so it never
+            // materializes as a closer token.  Treat it as NOT a closer and
+            // keep scanning; otherwise a delimiter opened earlier would be
+            // considered "closed" by a phantom underscore and run away.
+            if (close_char == '_' &&
+                !lexer->eof(lexer) && is_ascii_alnum(lexer->lookahead)) {
+                prev_char = '_';
+                continue;
+            }
             // A closing run of length >= close_len (not just ==) counts, so a
             // `***` run can close a `**` strong.
-            if (run >= close_len && lexer->lookahead != close_char) {
+            if (rlen >= close_len) {
                 return true;
             }
-        } else {
-            run = 0;
-            lexer->advance(lexer, false);
+            prev_char = '_';
+            continue;
         }
+
+        lexer->advance(lexer, false);
+        prev_char = ch;
     }
     return false;
 }

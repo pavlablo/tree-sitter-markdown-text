@@ -840,6 +840,7 @@ export default grammar({
       alias($._dollar_dollar_inline, '$$'),
       $._unicode_symbol_run,
       $._unicode_punctuation_run,
+      $._unicode_mark_run,
       '=', '+', '-', '*', '/', '|', '&',
       // Remaining ASCII punctuation not covered by other classes.
       '"', '#', '$', '%', '\'', '@', '\\', '^', '_', '`', '~',
@@ -847,6 +848,11 @@ export default grammar({
     _dollar_dollar_inline: ($) => token(prec(3, '$$')),
     _unicode_symbol_run: ($) => new RustRegex('[\\p{S}&&[^\\x00-\\x7F]]+'),
     _unicode_punctuation_run: ($) => new RustRegex('[\\p{P}&&[^\\x00-\\x7F]]+'),
+    // Unicode combining marks (Mn/Mc/Me) such as emoji variation selectors
+    // (U+FE0F) and decomposed accents.  These are neither letters, symbols nor
+    // punctuation, so without this run ordinary prose containing them (emoji
+    // with variation selectors, decomposed diacritics) falls into ERROR.
+    _unicode_mark_run: ($) => new RustRegex('[\\p{M}&&[^\\x00-\\x7F]]+'),
 
     // --- §3.2 structural inline nodes -----------------------------------
 

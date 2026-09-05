@@ -1327,3 +1327,269 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+================================================================================
+Intraword underscores are identifiers, not emphasis
+================================================================================
+foo_bar and snake_case_identifier
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (identifier_like_token))
+        (text_span
+          (word_token))
+        (text_span
+          (identifier_like_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Unclosed underscore with intraword closer stops before a fenced block
+================================================================================
+_build_log and foo_bar
+
+```
+code block
+```
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (identifier_like_token))
+        (text_span
+          (word_token))
+        (text_span
+          (identifier_like_token))))
+    (blank_line)
+    (fenced_code_block
+      (fenced_code_block_delimiter)
+      (block_continuation)
+      (code_fence_content
+        (block_continuation))
+      (fenced_code_block_delimiter))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Star list items with strong at item start do not run away
+================================================================================
+* **bold** text
+* **bold** text
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (list
+      (list_item
+        (list_marker_star)
+        (paragraph
+          (inline
+            (text_span
+              (operator_like)
+              (word_token)
+              (operator_like)
+              (operator_like))
+            (text_span
+              (word_token)))))
+      (list_item
+        (list_marker_star)
+        (paragraph
+          (inline
+            (text_span
+              (operator_like)
+              (word_token)
+              (operator_like)
+              (operator_like))
+            (text_span
+              (word_token)))
+          (block_continuation))
+        (blank_line)))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Nested star list items with strong at item start do not run away
+================================================================================
+1.  Title: Deodorant
+    *   **Authors:** Dunja
+    *   **Journal:** 2024
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (list
+      (list_item
+        (list_marker_dot)
+        (paragraph
+          (inline
+            (text_span
+              (word_token)
+              (separator))
+            (text_span
+              (word_token)))
+          (block_continuation))
+        (list
+          (list_item
+            (list_marker_star)
+            (paragraph
+              (inline
+                (text_span
+                  (operator_like)
+                  (word_token)
+                  (separator)
+                  (operator_like)
+                  (operator_like))
+                (text_span
+                  (word_token)))
+              (block_continuation)))
+          (list_item
+            (list_marker_star)
+            (paragraph
+              (inline
+                (text_span
+                  (operator_like)
+                  (word_token)
+                  (separator)
+                  (operator_like)
+                  (operator_like))
+                (text_span
+                  (numeric_token)))
+              (block_continuation))
+            (blank_line)))))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Emoji with variation selector parses as ordinary text
+================================================================================
+No ⚠️ scopes found.
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (operator_like)
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Underscore before inline code does not form phantom emphasis
+================================================================================
+x a_: `<a_>`
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (operator_like)
+          (separator))
+        (inline_code
+          (inline_code_delimiter)
+          (inline_code_content)
+          (inline_code_delimiter))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Underscore path inside a table cell does not run away
+================================================================================
+| _sample_repos/foo/_bar | 329,697 | 0.186 |
+| --- | --- | --- |
+| a | b | c |
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (pipe_table
+      (pipe_table_header
+        (pipe_table_cell
+          (inline
+            (path_like_token)))
+        (pipe_table_cell
+          (inline
+            (numeric_token)
+            (separator)
+            (numeric_token)))
+        (pipe_table_cell
+          (inline
+            (numeric_token))))
+      (pipe_table_delimiter_row
+        (pipe_table_delimiter_cell)
+        (pipe_table_delimiter_cell)
+        (pipe_table_delimiter_cell))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token)))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
