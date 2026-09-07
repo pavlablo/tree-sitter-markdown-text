@@ -211,6 +211,99 @@ query, _ := markdown.GetHighlightsQuery()
 > the git-dependency form from the previous section and build the shared
 > library yourself as described below.
 
+## Migrating from upstream tree-sitter-markdown
+
+If you already have a consumer that loads the *original*
+[`tree-sitter-grammars/tree-sitter-markdown`](https://github.com/tree-sitter-grammars/tree-sitter-markdown)
+grammar and you swap the dependency to this fork, **loading and compiling will
+just work**, but **AST queries and rules will not**. This grammar keeps the same
+grammar name (`markdown`), scope (`source.markdown`), exported symbol
+(`tree_sitter_markdown`), and ABI 14, so any tree-sitter host accepts it
+silently. What changes is the *shape of the tree*: this fork's value is a
+structured, textlint-aligned AST, not a syntax-highlighting one. A consumer
+that matches upstream node kinds will not error — it will silently match
+nothing and produce empty results.
+
+To migrate, do three things:
+
+1. **Repoint the dependency and pin it.** Use the
+   [git-dependency form](#installing-as-a-git-dependency-recommended-for-consumer-projects)
+   and pin a tag or commit SHA. Do not float on `#main` — the fork evolves and
+   the AST contract would change under you.
+2. **If you load the grammar as a dynamic library** (ast-grep custom languages,
+   dlopen, etc.), build the `.so` and register it as described in
+   [Using with ast-grep](#using-with-ast-grep). Remember: **do not name the
+   custom language `markdown`** on ast-grep ≥0.43 — the built-in Markdown
+   shadows it and your rules fail with `Invalid Kind`.
+3. **Rewrite queries and rules from upstream kinds to fork kinds** using the
+   tables below. This is the only non-mechanical step.
+
+### Upstream kind → fork kind
+
+Every mapping below was produced by diffing `src/node-types.json` of this fork
+against the original grammar's `node-types.json` (v0.7.1). "Same name" kinds
+keep their name but may have a different shape; "no direct equivalent" kinds
+require a structural rewrite.
+
+**Block nodes**
+
+| Upstream kind | Fork kind | Notes |
+|---|---|---|
+| `document`, `paragraph`, `block_quote`, `fenced_code_block`, `indented_code_block`, `info_string`, `code_fence_content`, `thematic_break`, `link_reference_definition`, `atx_heading`, `setext_heading` | same name | Fork adds a `level:` field to both `atx_heading` and `setext_heading`. |
+| `tight_list` / `loose_list` | `list` | Fork has a single `list` node; the tight/loose distinction is not exposed as separate kinds. |
+| `table` | `pipe_table` | |
+| `table_header_row` | `pipe_table_header` | |
+| `table_delimiter_row` | `pipe_table_delimiter_row` | |
+| `table_data_row` | `pipe_table_row` | |
+| `table_cell` | `pipe_table_cell` | |
+| `table_column_alignment` | `pipe_table_align_left` / `pipe_table_align_right` | |
+| `list_marker` | `list_marker_dot` / `list_marker_minus` / `list_marker_parenthesis` / `list_marker_plus` / `list_marker_star` | Upstream's generic marker is split by punctuation. |
+| `task_list_item` | `task_list_item` | |
+| `task_list_item_marker` | `task_list_marker_checked` / `task_list_marker_unchecked` | Checked/unchecked are distinct kinds. |
+| `heading_content` | `inline` | Headings carry their content as the structured `inline` wrapper. |
+
+**Inline nodes**
+
+| Upstream kind | Fork kind | Notes |
+|---|---|---|
+| `link` | `inline_link` / `full_reference_link` / `collapsed_reference_link` / `shortcut_link` | The four reference forms are explicit kinds in this fork. |
+| `link_text` / `image_description` | `link_label` | Label text is parsed structurally, not opaque. |
+| `link_destination`, `link_title` | same name | |
+| `image` | `image` (plus `image_block` for a standalone image paragraph) | |
+| `code_span` | `inline_code` | |
+| `emphasis` | `emphasis` | |
+| `strong_emphasis` | `strong` | |
+| `strikethrough` | `strikethrough` | |
+| `uri_autolink` / `email_autolink` / `www_autolink` | `autolink` | Single kind with `uri` / `email` children. |
+| `character_reference` | `entity_reference` / `numeric_character_reference` | Named vs. numeric references are split. |
+| `text` | `text_span` + classified tokens | `text_span` wraps `word_token`, `numeric_token`, `identifier_like_token`, `path_like_token`; punctuation is classified as `terminator`, `separator`, `bracket`, `operator_like`. |
+| `line_break` / `soft_line_break` / `hard_line_break` | no direct equivalent | Line breaks are not surfaced as dedicated kinds; handle them at the `text_span` level. |
+| `html_open_tag`, `html_close_tag` | same name | |
+| `html_self_closing_tag` | no direct equivalent | Self-closing tags are not split into their own kind. |
+| `html_comment` | `html_comment` (inline) / `html_comment_block` (block) | |
+| `html_cdata_section` | `html_cdata` | |
+| `html_declaration`, `html_processing_instruction` | same name | |
+| `html_atrribute` (sic), `html_attribute_key`, `html_attribute_value`, `html_tag_name` | no direct equivalent | This fork's `html_open_tag` is shallow and does not expose attribute children. |
+| `virtual_space` | no direct equivalent | Whitespace handling differs; see `blank_line` and the inline token classes. |
+
+**Kinds new to this fork** (no upstream counterpart — add rules for them if you
+need them): `blank_line`, `section`, `callout` (+ `callout_type`),
+`directive_block`, `footnote_definition`, `footnote_reference`, `math_block`,
+`math_inline`, `mdx_jsx_block`, `mdx_jsx_inline`, `minus_metadata`,
+`plus_metadata`, `backslash_escape`.
+
+The two changes that break the most highlight/analysis consumers are:
+`inline_span` / `inline_spans` do **not** exist here — the `inline` wrapper is
+structured, and the old `text` blob is replaced by `text_span` plus the
+classified tokens. Anything that matched `text` or `inline_span` needs a
+rewrite to the fork's kinds (see the [Node kind reference](#node-kind-reference)
+for the full list).
+
+*Migration section generated/modified by AI Kilo Code 7.4.17-gratex-009, used
+model deepseek-v4-flash.*
+
+<!-- Generated/modified by AI Kilo Code 7.4.17-gratex-009, used model deepseek-v4-flash -->
+
 ## Building the shared library (`markdown-text.so`) from source
 
 Any consumer that loads the grammar as a dynamically-linked library (notably
