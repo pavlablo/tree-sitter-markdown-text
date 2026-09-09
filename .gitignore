@@ -53,6 +53,14 @@ zig-out/
 .kilo
 ..kil/
 TODO-emphasis-fix.md
+mydb
+
+# CodeQL scratch
+_codeql_detected_source_root
+codeql-pack.lock.yml
+example.ql
+qlpack.yml
+test.ql
 
 # Local notes / known-errors scratchpad
 known-errors/
