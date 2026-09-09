@@ -987,13 +987,19 @@ static bool has_closing_delimiter(Scanner *s, TSLexer *lexer,
         // `~`) an unescaped `|` is ALWAYS a cell boundary: a closer must not
         // cross it, otherwise a delimiter opened in one cell would match a
         // closer in the next cell and merge the two cells.  For the backtick
-        // delimiter, `|` is only a boundary INSIDE an actual pipe table
-        // (s->in_pipe_table): outside a table a `|` inside a code span is
-        // ordinary content (`` `a|b` `` — shell pipelines, CSV, regex) and must
-        // not bound the search.  Backslash-escaped characters (`\|`) are
-        // literal cell content and never bound the search.
+        // delimiter and the `]` closer (footnote reference `[^...]`), `|` is
+        // only a boundary INSIDE an actual pipe table (s->in_pipe_table):
+        // outside a table a `|` inside a code span (`` `a|b` `` — shell
+        // pipelines, CSV, regex) or inside a link label (`[a|b](/u)`) is
+        // ordinary content and must not bound the search.  Backslash-escaped
+        // characters (`\|`) are literal cell content and never bound the
+        // search.  The code-span skip below consumes a backtick span as a
+        // unit, matching the `*`/`_`/`~` mechanism: a `|` inside a code span
+        // is not itself probed for the `]` closer, so footnote labels behave
+        // like every other delimiter inside a cell.
         if (close_char == '*' || close_char == '_' || close_char == '~' ||
-            (close_char == '`' && s->in_pipe_table)) {
+            (s->in_pipe_table &&
+             (close_char == '`' || close_char == ']'))) {
             if (ch == '\\') {
                 // Skip the backslash and the escaped character so an escaped
                 // `\|` is not seen as a boundary.
@@ -1114,13 +1120,19 @@ static bool has_closing_delimiter_ge(Scanner *s, TSLexer *lexer,
         // `~`) an unescaped `|` is ALWAYS a cell boundary: a closer must not
         // cross it, otherwise a delimiter opened in one cell would match a
         // closer in the next cell and merge the two cells.  For the backtick
-        // delimiter, `|` is only a boundary INSIDE an actual pipe table
-        // (s->in_pipe_table): outside a table a `|` inside a code span is
-        // ordinary content (`` `a|b` `` — shell pipelines, CSV, regex) and must
-        // not bound the search.  Backslash-escaped characters (`\|`) are
-        // literal cell content and never bound the search.
+        // delimiter and the `]` closer (footnote reference `[^...]`), `|` is
+        // only a boundary INSIDE an actual pipe table (s->in_pipe_table):
+        // outside a table a `|` inside a code span (`` `a|b` `` — shell
+        // pipelines, CSV, regex) or inside a link label (`[a|b](/u)`) is
+        // ordinary content and must not bound the search.  Backslash-escaped
+        // characters (`\|`) are literal cell content and never bound the
+        // search.  The code-span skip below consumes a backtick span as a
+        // unit, matching the `*`/`_`/`~` mechanism: a `|` inside a code span
+        // is not itself probed for the `]` closer, so footnote labels behave
+        // like every other delimiter inside a cell.
         if (close_char == '*' || close_char == '_' || close_char == '~' ||
-            (close_char == '`' && s->in_pipe_table)) {
+            (s->in_pipe_table &&
+             (close_char == '`' || close_char == ']'))) {
             if (ch == '\\') {
                 // Skip the backslash and the escaped character so an escaped
                 // `\|` is not seen as a boundary.
