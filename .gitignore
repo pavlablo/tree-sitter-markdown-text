@@ -51,4 +51,8 @@ zig-out/
 *.tgz
 *.zip
 .kilo
+..kil/
 TODO-emphasis-fix.md
+
+# Local notes / known-errors scratchpad
+known-errors/

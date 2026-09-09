@@ -857,21 +857,31 @@ export default grammar({
     // --- §3.2 structural inline nodes -----------------------------------
 
     // Inline code. Supports delimiter runs of 1 or 2 backticks. The content
-    // is everything up to the matching run of the same length. A full
-    // CommonMark implementation handles arbitrarily long runs; two cases
-    // cover the overwhelming majority of real documents.  The delimiters are
-    // external scanner tokens: an OPEN is only emitted when a matching closer
-    // run exists before the next block boundary, so an unclosed backtick
-    // degrades to ordinary text instead of a runaway ERROR.
+    // is everything up to the matching run of the same length; a run of a
+    // DIFFERENT length inside the span is content (CommonMark §6.4, e.g. a
+    // ``` run inside a level-1 span or a ``` run inside a level-2 span).
+    // The content regex cannot span backticks, so foreign-length runs are
+    // emitted by the scanner as _inline_code_backtick_run tokens (tracking
+    // the open delimiter length), aliased to inline_code_content.  The
+    // delimiters are external scanner tokens: an OPEN is only emitted when a
+    // matching closer run exists before the next block boundary, so an
+    // unclosed backtick degrades to ordinary text instead of a runaway
+    // ERROR.
     inline_code: ($) => choice(
       seq(
         alias($._inline_code_backtick_1_open, $.inline_code_delimiter),
-        optional(alias(/[^`\n\r]+/, $.inline_code_content)),
+        repeat(choice(
+          alias(/[^`\n\r]+/, $.inline_code_content),
+          alias($._inline_code_backtick_run, $.inline_code_content),
+        )),
         alias($._inline_code_backtick_1_close, $.inline_code_delimiter),
       ),
       seq(
         alias($._inline_code_backtick_2_open, $.inline_code_delimiter),
-        optional(alias(/([^`\n\r]|`[^`\n\r])+/, $.inline_code_content)),
+        repeat(choice(
+          alias(/([^`\n\r]|`[^`\n\r])+/, $.inline_code_content),
+          alias($._inline_code_backtick_run, $.inline_code_content),
+        )),
         alias($._inline_code_backtick_2_close, $.inline_code_delimiter),
       ),
     ),
@@ -1315,6 +1325,7 @@ export default grammar({
     $._inline_code_backtick_1_close,
     $._inline_code_backtick_2_open,
     $._inline_code_backtick_2_close,
+    $._inline_code_backtick_run,
   ],
   precedences: ($) => [
     [$._setext_heading1, $._block],

@@ -1593,3 +1593,93 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+==================
+Inline code with a foreign backtick run closes on the matching run
+==================
+text ` ```lang ``` ` more
+
+Trailing paragraph.
+
+---
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (inline_code
+          (inline_code_delimiter)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_delimiter))
+        (text_span
+          (word_token))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+==================
+Level-2 inline code with a 3-run inside closes on the matching 2-run
+==================
+`` ``` ``` ``
+
+Trailing paragraph.
+
+---
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_code
+          (inline_code_delimiter)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_delimiter))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+==================
+A pipe inside a code span is content in a normal paragraph
+==================
+`a|b`
+
+Trailing paragraph.
+
+---
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_code
+          (inline_code_delimiter)
+          (inline_code_content)
+          (inline_code_delimiter))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))

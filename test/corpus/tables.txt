@@ -160,3 +160,75 @@ Trailing paragraph.
             (word_token)
             (word_token)
             (terminator)))))))
+
+================================================================================
+Backtick delimiters do not cross table cell boundaries
+================================================================================
+| a | b |
+|---|---|
+| `code | `more |
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (pipe_table
+      (pipe_table_header
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_delimiter_row
+        (pipe_table_delimiter_cell)
+        (pipe_table_delimiter_cell))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (word_token)
+            (word_token)
+            (terminator)))))))
+
+================================================================================
+Double-backtick run does not cross table cell boundaries
+================================================================================
+| a | b |
+|---|---|
+| ``code | ``more |
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (pipe_table
+      (pipe_table_header
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_delimiter_row
+        (pipe_table_delimiter_cell)
+        (pipe_table_delimiter_cell))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (word_token)
+            (word_token)
+            (terminator)))))))

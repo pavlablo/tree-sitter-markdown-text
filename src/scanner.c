@@ -49,8 +49,9 @@ enum {
     SERIALIZED_U32_BYTE_3_SHIFT = 24,
     // Fixed header bytes that `serialize`/`deserialize` write/read before the
     // trailing block-byte payload: state, matched, indentation, column,
-    // fenced_code_block_delimiter_length.
-    SERIALIZED_HEADER_SIZE = 10,
+    // fenced_code_block_delimiter_length, inline_code_delimiter_length,
+    // in_pipe_table.
+    SERIALIZED_HEADER_SIZE = 12,
     SERIALIZED_BLOCK_SIZE = 1,
 };
 
@@ -127,6 +128,7 @@ typedef enum {
     INLINE_CODE_BACKTICK_1_CLOSE,
     INLINE_CODE_BACKTICK_2_OPEN,
     INLINE_CODE_BACKTICK_2_CLOSE,
+    INLINE_CODE_BACKTICK_RUN,
     SCANNER_TOKEN_TYPE_COUNT,
 } TokenType;
 
@@ -263,7 +265,7 @@ enum {
 
 TS_MD_STATIC_ASSERT(ATX_H6_MARKER == ATX_H1_MARKER + (ATX_HEADING_LEVELS - 1),
                     atx_markers_contiguous);
-TS_MD_STATIC_ASSERT(SCANNER_TOKEN_TYPE_COUNT == INLINE_CODE_BACKTICK_2_CLOSE + 1,
+TS_MD_STATIC_ASSERT(SCANNER_TOKEN_TYPE_COUNT == INLINE_CODE_BACKTICK_RUN + 1,
                     token_type_count_trails_enum);
 TS_MD_STATIC_ASSERT(ANONYMOUS <= UINT8_MAX,
                     block_fits_in_one_byte);
@@ -291,6 +293,17 @@ typedef struct {
     uint8_t column;
     // The delimiter length of the currently open fenced code block
     uint32_t fenced_code_block_delimiter_length;
+    // Length of the currently open inline-code span delimiter (1 or 2), or 0
+    // when not inside an inline-code span.  Set when an inline-code OPEN is
+    // emitted, cleared on its CLOSE.  Lets parse_backtick emit foreign-length
+    // backtick runs as INLINE_CODE_BACKTICK_RUN content tokens (§6.4).
+    uint32_t inline_code_delimiter_length;
+    // True while the scanner is inside a pipe-table body (from PIPE_TABLE_START
+    // until the table's row chain ends with a plain line ending / EOF).  Inline
+    // code spans opened with a backtick run must not search for a closer across
+    // a `|` cell boundary inside a table (GFM §4.10); outside a table a `|`
+    // inside a code span is ordinary content and must not bound the search.
+    bool in_pipe_table;
 
     bool simulate;
 } Scanner;
@@ -302,6 +315,8 @@ typedef struct {
     uint16_t indentation;
     uint8_t column;
     uint32_t fenced_code_block_delimiter_length;
+    uint32_t inline_code_delimiter_length;
+    bool in_pipe_table;
     bool simulate;
 } ScannerSnapshot;
 
@@ -326,6 +341,8 @@ static ScannerSnapshot snapshot_scanner(const Scanner *s) {
         .column = s->column,
         .fenced_code_block_delimiter_length =
             s->fenced_code_block_delimiter_length,
+        .inline_code_delimiter_length = s->inline_code_delimiter_length,
+        .in_pipe_table = s->in_pipe_table,
         .simulate = s->simulate,
     };
     return snapshot;
@@ -340,6 +357,8 @@ static void restore_scanner(Scanner *s, ScannerSnapshot snapshot) {
     s->column = snapshot.column;
     s->fenced_code_block_delimiter_length =
         snapshot.fenced_code_block_delimiter_length;
+    s->inline_code_delimiter_length = snapshot.inline_code_delimiter_length;
+    s->in_pipe_table = snapshot.in_pipe_table;
     s->simulate = snapshot.simulate;
 }
 
@@ -437,6 +456,8 @@ static unsigned serialize(Scanner *s, char *buffer) {
     write_u16(buffer, &size, s->indentation);
     buffer[size++] = (char)s->column;
     write_u32(buffer, &size, s->fenced_code_block_delimiter_length);
+    buffer[size++] = (char)s->inline_code_delimiter_length;
+    buffer[size++] = (char)s->in_pipe_table;
     assert(size == SERIALIZED_HEADER_SIZE);
     size_t max_blocks = max_serialized_blocks();
     size_t blocks_count = s->open_blocks.size < max_blocks
@@ -458,6 +479,8 @@ static void deserialize(Scanner *s, const char *buffer, unsigned length) {
     s->indentation = 0;
     s->column = 0;
     s->fenced_code_block_delimiter_length = 0;
+    s->inline_code_delimiter_length = 0;
+    s->in_pipe_table = false;
     // The serialized form is a fixed header followed by one byte per Block.
     // Validate all fields before applying them so corrupted buffers resume from
     // a clean state instead of a partially restored one.
@@ -474,8 +497,11 @@ static void deserialize(Scanner *s, const char *buffer, unsigned length) {
     uint16_t indentation = read_u16(buffer, &size);
     uint8_t column = (uint8_t)buffer[size++];
     uint32_t fenced_code_block_delimiter_length = read_u32(buffer, &size);
+    uint8_t inline_code_delimiter_length = (uint8_t)buffer[size++];
+    uint8_t in_pipe_table_byte = (uint8_t)buffer[size++];
     assert(size == SERIALIZED_HEADER_SIZE);
     if ((state & (uint8_t)(~STATE_ALL)) != 0 || column >= TAB_STOP ||
+        inline_code_delimiter_length > 2 || in_pipe_table_byte > 1 ||
         matched > blocks_count) {
         return;
     }
@@ -500,6 +526,8 @@ static void deserialize(Scanner *s, const char *buffer, unsigned length) {
     s->column = column;
     s->fenced_code_block_delimiter_length =
         fenced_code_block_delimiter_length;
+    s->inline_code_delimiter_length = inline_code_delimiter_length;
+    s->in_pipe_table = in_pipe_table_byte != 0;
     for (size_t i = 0; i < blocks_count; i++) {
         s->open_blocks.items[i] = (Block)(uint8_t)buffer[block_offset + i];
     }
@@ -724,8 +752,14 @@ static bool scan_metadata_block(Scanner *s, TSLexer *lexer,
 //   Ordered list      : line starts with an ASCII digit (`1. ` / `1) `).
 //
 // NOT covered (known limitations — tracked for future work):
-//   - HTML block start tags: complex to detect correctly in raw-text scan.
-//   - Indented code blocks: require column-counting, not feasible here.
+//   - HTML block start tags: only the CommonMark type-6 block-tag subset is
+//     detected, and only in line_starts_block (it needs to read the tag name,
+//     which this first-character heuristic cannot do).  Type-7 inline tags
+//     (`<span>`) must NOT interrupt a paragraph (§4.6), so `<` is deliberately
+//     absent here.
+//   - Indented code blocks: a 4-space-indented line is a paragraph continuation
+//     per §4.4 and must NOT bound the delimiter search, so it is intentionally
+//     not treated as a block start (see line_starts_block).
 //   - Underscore-emphasis closer as the ONLY character on a new line
 //     (e.g. `_text\n_`): the closing `_` is indistinguishable from the start
 //     of a thematic break (`___`) without advancing the lexer, so the search
@@ -788,6 +822,61 @@ static bool looks_like_block_start(TSLexer *lexer) {
 
 
 // ---------------------------------------------------------------------------
+// line_starts_html_block_type_6: CommonMark type-6 HTML block start detection.
+// Called from line_starts_block with lexer->lookahead == '<' at the first
+// character of a line (after leading whitespace was skipped).  Returns true iff
+// the line begins a type-6 HTML block: `<` optionally followed by `/`, then an
+// ASCII tag name from HTML_TAG_NAMES_RULE_7 (matched case-insensitively, mirror
+// of the type-6 branch in parse_html_block), then whitespace, end of line,
+// `>`, or `/>`.  Type-6 blocks may interrupt a paragraph (CommonMark §4.6);
+// type-7 inline tags (`<span>`) cannot and are deliberately NOT matched here.
+//
+// This function advances past the tag name (safe: it is used only as a
+// lookahead inside has_closing_delimiter, whose caller restores the lexer
+// position on backtrack).
+// ---------------------------------------------------------------------------
+// NOLINTBEGIN(readability-identifier-length)
+static bool line_starts_html_block_type_6(TSLexer *lexer) {
+    lexer->advance(lexer, false); // consume '<'
+    if (lexer->lookahead == '/') {
+        lexer->advance(lexer, false); // optional closing-tag slash
+    }
+    char name[HTML_TAG_NAME_BUFFER];
+    size_t name_length = 0;
+    while (is_ascii_alpha(lexer->lookahead)) {
+        if (name_length < HTML_TAG_NAME_MAX) {
+            name[name_length++] = ascii_tolower(lexer->lookahead);
+        } else {
+            name_length = HTML_TAG_NAME_TOO_LONG;
+        }
+        lexer->advance(lexer, false);
+    }
+    if (name_length == 0 || name_length >= HTML_TAG_NAME_BUFFER) {
+        return false;
+    }
+    name[name_length] = 0;
+    bool next_ok =
+        lexer->lookahead == ' ' || lexer->lookahead == '\t' ||
+        lexer->lookahead == '\n' || lexer->lookahead == '\r' ||
+        lexer->lookahead == '>';
+    if (!next_ok && lexer->lookahead == '/') {
+        lexer->advance(lexer, false);
+        next_ok = lexer->lookahead == '>';
+    }
+    if (!next_ok) {
+        return false;
+    }
+    for (size_t i = 0; i < NUM_HTML_TAG_NAMES_RULE_7; i++) {
+        if (strcmp(name, HTML_TAG_NAMES_RULE_7[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+// NOLINTEND(readability-identifier-length)
+
+
+// ---------------------------------------------------------------------------
 // line_starts_block: at the first character of a new line (just after a
 // newline), skip any leading whitespace and report whether the first real
 // character begins a block element.  Unlike looks_like_block_start alone, this
@@ -795,20 +884,40 @@ static bool looks_like_block_start(TSLexer *lexer) {
 // leading spaces would otherwise hide the `*`/`#`/etc. from the first-char
 // check.  A whitespace-only line is treated as a block boundary.
 //
+// Beyond looks_like_block_start's first-character coverage, this also detects
+// CommonMark type-6 HTML block starts (`<div>` / `</div>`), which require
+// reading the tag name: only type-6 block tags interrupt a paragraph.  Type-7
+// inline tags (`<span>`) and indented HTML (an indented code block, §4.4) are
+// NOT boundaries.
+//
 // This function advances past the leading whitespace (safe: it is used only as
 // a lookahead inside has_closing_delimiter, whose caller restores the lexer
 // position on backtrack).
 // ---------------------------------------------------------------------------
 // NOLINTBEGIN(readability-identifier-length)
 static bool line_starts_block(TSLexer *lexer) {
+    uint32_t column = 0;
     while (!lexer->eof(lexer) &&
            (lexer->lookahead == ' ' || lexer->lookahead == '\t')) {
+        if (lexer->lookahead == '\t') {
+            column = (uint32_t)((column / TAB_STOP + 1U) * TAB_STOP);
+        } else {
+            column++;
+        }
         lexer->advance(lexer, false);
     }
     if (lexer->eof(lexer)) {
         return true;
     }
     if (lexer->lookahead == '\n' || lexer->lookahead == '\r') {
+        return true;
+    }
+    // CommonMark type-6 HTML block start: only a block-level tag name bounds
+    // the delimiter search, and only when the indentation is at most
+    // MAX_NON_CODE_INDENT columns (an indented `<div>` is indented code, not
+    // an HTML block, and cannot interrupt a paragraph).
+    if (lexer->lookahead == '<' && column <= MAX_NON_CODE_INDENT &&
+        line_starts_html_block_type_6(lexer)) {
         return true;
     }
     return looks_like_block_start(lexer);
@@ -830,10 +939,13 @@ static bool line_starts_block(TSLexer *lexer) {
 //      between them (\n\n or \r\n\r\n etc.).
 //   2. Single newline followed by a line that looks like a block-level
 //      element start (ATX heading, fenced code, blockquote, thematic break /
-//      list marker first character) — checked via looks_like_block_start().
+//      list marker, setext underline, ordered-list item, type-6 HTML block
+//      tag) — checked via line_starts_block().
 //
-// NOT covered by the boundary heuristic (see looks_like_block_start comment):
-//   setext underlines, ordered list items, HTML block tags, indented code.
+// NOT covered by the boundary heuristic: indented code (a 4-space line is a
+// paragraph continuation per §4.4) and type-7 inline HTML tags (`<span>`,
+// which cannot interrupt a paragraph per §4.6) are deliberately NOT treated
+// as block starts.
 //
 // Position contract: this function ONLY calls `lexer->advance`; it does NOT
 // call `mark_end`.  The caller restores `s->indentation` / `s->column` before
@@ -841,7 +953,7 @@ static bool line_starts_block(TSLexer *lexer) {
 // position on scanner backtrack but does NOT restore Scanner struct fields.
 // ---------------------------------------------------------------------------
 // NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity)
-static bool has_closing_delimiter(TSLexer *lexer,
+static bool has_closing_delimiter(Scanner *s, TSLexer *lexer,
                                   int32_t close_char,
                                   uint32_t close_len) {
     bool prev_was_newline = false;
@@ -871,12 +983,17 @@ static bool has_closing_delimiter(TSLexer *lexer,
             ch = lexer->lookahead;
         }
 
-        // For the text-inline delimiters (`*`, `_`, `~`) an unescaped `|` is a
-        // table-cell boundary: a closer must not cross it, otherwise a
-        // delimiter opened in one cell would match a closer in the next cell
-        // and merge the two cells.  Backslash-escaped characters (`\|`) are
-        // literal cell content and do not bound the search.
-        if (close_char == '*' || close_char == '_' || close_char == '~') {
+        // Pipe-table cell boundary.  For the text-inline delimiters (`*`, `_`,
+        // `~`) an unescaped `|` is ALWAYS a cell boundary: a closer must not
+        // cross it, otherwise a delimiter opened in one cell would match a
+        // closer in the next cell and merge the two cells.  For the backtick
+        // delimiter, `|` is only a boundary INSIDE an actual pipe table
+        // (s->in_pipe_table): outside a table a `|` inside a code span is
+        // ordinary content (`` `a|b` `` — shell pipelines, CSV, regex) and must
+        // not bound the search.  Backslash-escaped characters (`\|`) are
+        // literal cell content and never bound the search.
+        if (close_char == '*' || close_char == '_' || close_char == '~' ||
+            (close_char == '`' && s->in_pipe_table)) {
             if (ch == '\\') {
                 // Skip the backslash and the escaped character so an escaped
                 // `\|` is not seen as a boundary.
@@ -891,11 +1008,14 @@ static bool has_closing_delimiter(TSLexer *lexer,
                 }
                 continue;
             }
-            if (ch == '`') {
+            if (ch == '`' && close_char != '`') {
                 // An inline code span: delimiters inside code never materialize
                 // as closer tokens (the span content is a single inline_code
                 // token), so skip the span to avoid treating them as phantom
-                // closers.  Conservative: does not cross a line break.
+                // closers.  Conservative: does not cross a line break.  Only
+                // applies to the text-inline delimiters — for backtick, a
+                // backtick run IS the closer being searched for, not a span to
+                // skip.
                 lexer->advance(lexer, false);
                 while (!lexer->eof(lexer) &&
                        lexer->lookahead != '`' &&
@@ -960,7 +1080,7 @@ static bool has_closing_delimiter(TSLexer *lexer,
 // semantics are identical to has_closing_delimiter (including the intraword
 // underscore guard).
 // NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity)
-static bool has_closing_delimiter_ge(TSLexer *lexer,
+static bool has_closing_delimiter_ge(Scanner *s, TSLexer *lexer,
                                      int32_t close_char,
                                      uint32_t close_len) {
     bool prev_was_newline = false;
@@ -990,12 +1110,17 @@ static bool has_closing_delimiter_ge(TSLexer *lexer,
             ch = lexer->lookahead;
         }
 
-        // For the text-inline delimiters (`*`, `_`, `~`) an unescaped `|` is a
-        // table-cell boundary: a closer must not cross it, otherwise a
-        // delimiter opened in one cell would match a closer in the next cell
-        // and merge the two cells.  Backslash-escaped characters (`\|`) are
-        // literal cell content and do not bound the search.
-        if (close_char == '*' || close_char == '_' || close_char == '~') {
+        // Pipe-table cell boundary.  For the text-inline delimiters (`*`, `_`,
+        // `~`) an unescaped `|` is ALWAYS a cell boundary: a closer must not
+        // cross it, otherwise a delimiter opened in one cell would match a
+        // closer in the next cell and merge the two cells.  For the backtick
+        // delimiter, `|` is only a boundary INSIDE an actual pipe table
+        // (s->in_pipe_table): outside a table a `|` inside a code span is
+        // ordinary content (`` `a|b` `` — shell pipelines, CSV, regex) and must
+        // not bound the search.  Backslash-escaped characters (`\|`) are
+        // literal cell content and never bound the search.
+        if (close_char == '*' || close_char == '_' || close_char == '~' ||
+            (close_char == '`' && s->in_pipe_table)) {
             if (ch == '\\') {
                 // Skip the backslash and the escaped character so an escaped
                 // `\|` is not seen as a boundary.
@@ -1010,11 +1135,14 @@ static bool has_closing_delimiter_ge(TSLexer *lexer,
                 }
                 continue;
             }
-            if (ch == '`') {
+            if (ch == '`' && close_char != '`') {
                 // An inline code span: delimiters inside code never materialize
                 // as closer tokens (the span content is a single inline_code
                 // token), so skip the span to avoid treating them as phantom
-                // closers.  Conservative: does not cross a line break.
+                // closers.  Conservative: does not cross a line break.  Only
+                // applies to the text-inline delimiters — for backtick, a
+                // backtick run IS the closer being searched for, not a span to
+                // skip.
                 lexer->advance(lexer, false);
                 while (!lexer->eof(lexer) &&
                        lexer->lookahead != '`' &&
@@ -1099,7 +1227,7 @@ static bool parse_math_inline_delimiter(Scanner *s, TSLexer *lexer,
             // token is exactly two characters even though has_closing_delimiter
             // scans further ahead.
             mark_end(s, lexer);
-            if (block_open && has_closing_delimiter(lexer, '$', 2)) {
+            if (block_open && has_closing_delimiter(s, lexer, '$', 2)) {
                 lexer->result_symbol = MATH_BLOCK_OPEN_DELIMITER;
                 return true;
             }
@@ -1194,7 +1322,7 @@ static bool parse_colon(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
     // the three-char boundary so the token is exactly `:::` even though
     // has_closing_delimiter scans further ahead.
     mark_end(s, lexer);
-    if (block_open && has_closing_delimiter(lexer, ':', DIRECTIVE_DELIMITER_LENGTH)) {
+    if (block_open && has_closing_delimiter(s, lexer, ':', DIRECTIVE_DELIMITER_LENGTH)) {
         lexer->result_symbol = DIRECTIVE_BLOCK_OPEN_DELIMITER;
         return true;
     }
@@ -1242,7 +1370,7 @@ static bool parse_bracket_open(Scanner *s, TSLexer *lexer,
     if (footnote && lexer->lookahead == '^') {
         advance(s, lexer); // consume '^'
         mark_end(s, lexer); // token = the two-char `[^`
-        if (has_closing_delimiter(lexer, ']', 1)) {
+        if (has_closing_delimiter(s, lexer, ']', 1)) {
             lexer->result_symbol = FOOTNOTE_REF_OPEN;
             return true;
         }
@@ -1324,13 +1452,34 @@ static bool parse_backtick(Scanner *s, TSLexer *lexer,
     // Inline code: a run of exactly one or two backticks.  A close emits
     // unconditionally; an open requires a matching closer run of the same
     // length before the next block boundary.
+    //
+    // A foreign-length backtick run inside an open inline-code span is
+    // CONTENT, not a closer (CommonMark §6.4: only a run of exactly the
+    // opener's length closes the span).  The grammar's content regex cannot
+    // span backticks, so the scanner owns such runs: emit the whole run as a
+    // single INLINE_CODE_BACKTICK_RUN token.  The open delimiter length is
+    // tracked in s->inline_code_delimiter_length (set when an OPEN is emitted,
+    // cleared on CLOSE) and restored via serialize/deserialize between tokens.
+    // Runs of length 1 inside a level-2 span are left to the grammar's
+    // `([^`\n\r]|`[^`\n\r])+` content regex (existing behaviour); a run of
+    // exactly the open length is the closer and is handled below.
+    if (valid_symbols[INLINE_CODE_BACKTICK_RUN] &&
+        s->inline_code_delimiter_length != 0 && level >= 2 &&
+        level != s->inline_code_delimiter_length) {
+        mark_end(s, lexer);
+        lexer->result_symbol = INLINE_CODE_BACKTICK_RUN;
+        return true;
+    }
+
     if (level == 1 && inline_valid) {
         if (ic_1_close) {
+            s->inline_code_delimiter_length = 0;
             lexer->result_symbol = INLINE_CODE_BACKTICK_1_CLOSE;
             return true;
         }
         if (ic_1_open && !lexer->eof(lexer) &&
-            has_closing_delimiter(lexer, '`', 1)) {
+            has_closing_delimiter(s, lexer, '`', 1)) {
+            s->inline_code_delimiter_length = 1;
             lexer->result_symbol = INLINE_CODE_BACKTICK_1_OPEN;
             return true;
         }
@@ -1338,11 +1487,13 @@ static bool parse_backtick(Scanner *s, TSLexer *lexer,
     }
     if (level == 2 && inline_valid) {
         if (ic_2_close) {
+            s->inline_code_delimiter_length = 0;
             lexer->result_symbol = INLINE_CODE_BACKTICK_2_CLOSE;
             return true;
         }
         if (ic_2_open && !lexer->eof(lexer) &&
-            has_closing_delimiter(lexer, '`', 2)) {
+            has_closing_delimiter(s, lexer, '`', 2)) {
+            s->inline_code_delimiter_length = 2;
             lexer->result_symbol = INLINE_CODE_BACKTICK_2_OPEN;
             return true;
         }
@@ -1521,7 +1672,7 @@ static bool parse_star(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
         !lexer->eof(lexer)) {
         // mark_end already committed at the two-star boundary, so the token
         // length is correct even though has_closing_delimiter advances further.
-        if (has_closing_delimiter_ge(lexer, '*', 2)) {
+        if (has_closing_delimiter_ge(s, lexer, '*', 2)) {
             lexer->result_symbol = STRONG_STAR_OPEN;
             return true;
         }
@@ -1534,7 +1685,7 @@ static bool parse_star(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
         !lexer->eof(lexer)) {
         // mark_end is already committed after the first `*`, so the token
         // length is correct even though has_closing_delimiter advances further.
-        if (has_closing_delimiter(lexer, '*', 1)) {
+        if (has_closing_delimiter(s, lexer, '*', 1)) {
             lexer->result_symbol = EMPHASIS_STAR_OPEN;
             return true;
         }
@@ -1640,7 +1791,7 @@ static bool parse_underscore(Scanner *s, TSLexer *lexer,
         // mark_end already committed at the two-underscore boundary, so the
         // token length is correct even though has_closing_delimiter advances
         // further.
-        if (has_closing_delimiter_ge(lexer, '_', 2)) {
+        if (has_closing_delimiter_ge(s, lexer, '_', 2)) {
             lexer->result_symbol = STRONG_UNDERSCORE_OPEN;
             return true;
         }
@@ -1653,7 +1804,7 @@ static bool parse_underscore(Scanner *s, TSLexer *lexer,
         !lexer->eof(lexer)) {
         // mark_end is already committed after the first `_`, so the token
         // length is correct even though has_closing_delimiter advances further.
-        if (has_closing_delimiter(lexer, '_', 1)) {
+        if (has_closing_delimiter(s, lexer, '_', 1)) {
             lexer->result_symbol = EMPHASIS_UNDERSCORE_OPEN;
             return true;
         }
@@ -1698,7 +1849,7 @@ static bool parse_tilde(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
         // next block boundary.  (No left-flanking space rule needed here: `~`
         // is not a word character, so there is no intraword ambiguity.)
         if (strike_open && !lexer->eof(lexer) &&
-            has_closing_delimiter(lexer, '~', 2)) {
+            has_closing_delimiter(s, lexer, '~', 2)) {
             lexer->result_symbol = STRIKETHROUGH_OPEN;
             return true;
         }
@@ -2597,6 +2748,13 @@ static bool any_block_start_valid(const bool *valid_symbols) {
 
 // NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
 static bool scan(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
+    // A pipe-table row-continuation token is only valid while the parser is
+    // inside a pipe_table, so it is a reliable per-scan signal for "we are in a
+    // table cell".  Deriving it here (rather than a persistent serialized flag)
+    // avoids contamination from the parser's speculative GLR scans, which would
+    // otherwise clobber a stored flag mid-table (e.g. a `|` row separator being
+    // absorbed into an inline code span that crosses the cell boundary).
+    s->in_pipe_table = valid_symbols[PIPE_TABLE_LINE_ENDING];
     // A normal tree-sitter rule decided that the current branch is invalid and
     // now "requests" an error to stop the branch
     if (valid_symbols[TRIGGER_ERROR]) {

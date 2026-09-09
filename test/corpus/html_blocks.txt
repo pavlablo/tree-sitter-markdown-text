@@ -51,3 +51,69 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+==================
+HTML block type 6 interrupts a runaway emphasis
+==================
+*open
+<div>
+content *close*
+
+Trailing paragraph.
+
+---
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like)
+          (word_token))))
+    (html_block
+      (block_continuation)
+      (block_continuation)
+      (blank_line))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+==================
+HTML block type 7 does not interrupt a paragraph
+==================
+*open
+<span>
+content *close*
+
+Trailing paragraph.
+
+---
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like)
+          (word_token))
+        (html_inline
+          (html_open_tag))
+        (text_span
+          (word_token))
+        (emphasis
+          (emphasis_delimiter)
+          (emphasis_content
+            (word_token))
+          (emphasis_delimiter))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
