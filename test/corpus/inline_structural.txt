@@ -1683,3 +1683,32 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+==================
+A pipe inside a link label is content in a normal paragraph
+==================
+[a|b](/u)
+
+Trailing paragraph.
+
+---
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_link
+          (link_label
+            (text_span
+              (word_token)
+              (operator_like)
+              (word_token)))
+          (link_destination))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))

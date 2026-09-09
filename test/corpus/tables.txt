@@ -232,3 +232,178 @@ Trailing paragraph.
             (word_token)
             (word_token)
             (terminator)))))))
+
+================================================================================
+Footnote reference delimiters do not cross table cell boundaries
+================================================================================
+| a | b |
+|---|---|
+| [^x | y] | z |
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (pipe_table
+      (pipe_table_header
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_delimiter_row
+        (pipe_table_delimiter_cell)
+        (pipe_table_delimiter_cell))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (shortcut_link
+              (link_label
+                (text_span
+                  (operator_like)
+                  (word_token))
+                (text_span
+                  (operator_like))
+                (text_span
+                  (word_token))))))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (word_token)
+            (word_token)
+            (terminator)))))))
+
+================================================================================
+Pipe inside a shortcut link label does not split the cell
+================================================================================
+| a | b |
+|---|---|
+| [x | y] | z |
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (pipe_table
+      (pipe_table_header
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_delimiter_row
+        (pipe_table_delimiter_cell)
+        (pipe_table_delimiter_cell))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (shortcut_link
+              (link_label
+                (text_span
+                  (word_token))
+                (text_span
+                  (operator_like))
+                (text_span
+                  (word_token))))))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (word_token)
+            (word_token)
+            (terminator)))))))
+
+================================================================================
+Pipe inside an inline link label does not split the cell
+================================================================================
+| a | b |
+|---|---|
+| [x | y](/u) | z |
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (pipe_table
+      (pipe_table_header
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_delimiter_row
+        (pipe_table_delimiter_cell)
+        (pipe_table_delimiter_cell))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (inline_link
+              (link_label
+                (text_span
+                  (word_token))
+                (text_span
+                  (operator_like))
+                (text_span
+                  (word_token)))
+              (link_destination))))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (word_token)
+            (word_token)
+            (terminator)))))))
+
+================================================================================
+Pipe inside an image label does not split the cell
+================================================================================
+| a | b |
+|---|---|
+| ![alt | x](/u) | z |
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (pipe_table
+      (pipe_table_header
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_delimiter_row
+        (pipe_table_delimiter_cell)
+        (pipe_table_delimiter_cell))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (image
+              (link_label
+                (text_span
+                  (word_token))
+                (text_span
+                  (operator_like))
+                (text_span
+                  (word_token)))
+              (link_destination))))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (word_token)
+            (word_token)
+            (terminator)))))))
