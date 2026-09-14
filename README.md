@@ -50,7 +50,7 @@ Upstream has a known bug where an unclosed paired delimiter (`*`, `_`, `**`, `__
 
 This fork fixes it with a shared lookahead mechanism (`has_closing_delimiter` / `looks_like_block_start` in `src/scanner.c`): before committing to open any paired construct, the scanner verifies a matching closing delimiter exists before the current block boundary. If none is found, the delimiter degrades to plain text instead of triggering runaway recovery. The fix is applied uniformly across all affected constructs: emphasis, strong, strikethrough, math blocks, directive blocks, autolinks, footnote references, and inline code.
 
-**Known limitations** (all degrade safely to text &mdash; none produce an `ERROR` node or swallow following content):
+**Known limitations** &mdash; the safe-degradation cases below are **not exhaustive**: several real inputs do produce an `ERROR` node (some contained, one cross-block that swallows the rest of the document). For the full, current list see [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md). The bullets here are the deliberate, spec-correct safe-degradation subset:
 
 - `_text\n_` &mdash; a lone closing `_` on its own line is not recognized as a closer (indistinguishable from a `___` thematic-break start without extra lookahead).
 - `***bold+italic***` &mdash; a run of three stars is not split into nested `strong`+`emphasis`; the whole run degrades to text.
