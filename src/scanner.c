@@ -1570,52 +1570,60 @@ static bool parse_backtick(Scanner *s, TSLexer *lexer,
 
 
 // ---------------------------------------------------------------------------
-// star_run_lookahead: single-pass forward lookahead used by parse_star's
-// strong-open branch (B1 containment, issue #4).
+// run_lookahead: single-pass forward lookahead shared by parse_star's and
+// parse_underscore's strong-open branches (B1 containment, issue #4).
 //
-// A run of three or more stars (`***a** b*`) is a phantom-closer trap: the
-// first `**` opens a strong, the inner `**` cannot close the OUTER strong (a
-// child cannot close its parent) and cannot open a nested strong, so it splits
-// and consumes the strong's closer; the strong never closes, the paragraph
-// never terminates, and ERROR recovery swallows the whole document.  To detect
-// this BEFORE committing STRONG_STAR_OPEN, parse_star needs to know not only
-// "does a >=2-star closer run exist" (has_closing_delimiter_ge) but also "is
-// there a leftover single `*` run AFTER that closer", because that leftover is
-// what splits the closer during parsing.  The TSLexer has NO reset API, so the
-// two questions must be answered in ONE pass.
+// A run of three or more delimiters (`***a** b*`, `___a__ b_`) is a
+// phantom-closer trap: the first `**`/`__` opens a strong, the inner
+// `**`/`__` cannot close the OUTER strong (a child cannot close its parent)
+// and cannot open a nested strong, so it splits and consumes the strong's
+// closer; the strong never closes, the paragraph never terminates, and ERROR
+// recovery swallows the whole document.  To detect this BEFORE committing
+// STRONG_STAR_OPEN / STRONG_UNDERSCORE_OPEN, the caller needs to know not only
+// "does a >=2-delimiter closer run exist" (has_closing_delimiter_ge) but also
+// "is there a leftover single-delimiter run AFTER that closer", because that
+// leftover is what splits the closer during parsing.  The TSLexer has NO reset
+// API, so the two questions must be answered in ONE pass.
 //
-// This replicates has_closing_delimiter_ge's forward skip logic for the `*`
-// delimiter (block boundaries, pipe-table cells, backslash escapes, inline
-// code spans) while recording every star run it crosses.  Returns a
-// star_run_lookahead_result by value:
-//   first_len  : length of the first `*` run (the strong-closer candidate).
-//   has_single : whether any run of exactly one `*` was crossed.
-//   has_strong : whether any run of two or more `*` was crossed — equivalent
-//                to has_closing_delimiter_ge(s, lexer, '*', 2), so non-guard
-//                paths behave byte-identically.
+// This replicates has_closing_delimiter_ge's forward skip logic for the given
+// close_char (block boundaries, pipe-table cells, backslash escapes, inline
+// code spans) while recording every delimiter run it crosses.  For
+// close_char == '_', the intraword absorb guard from has_closing_delimiter
+// applies too: a `_` run followed by an alphanumeric folds into an
+// identifier_like_token / path_like_token / word_token, so it never
+// materializes as a delimiter run and is not recorded.  Returns a
+// run_lookahead_result by value:
+//   first_len  : length of the first delimiter run (the strong-closer
+//                candidate).
+//   has_single : whether any run of exactly one delimiter was crossed.
+//   has_strong : whether any run of two or more delimiters was crossed —
+//                equivalent to has_closing_delimiter_ge(s, lexer, close_char,
+//                2), so non-guard paths behave byte-identically.
 //
 // Position contract: identical to has_closing_delimiter / has_closing_delimiter_ge —
 // only lexer->advance(lexer, false) is called, so s->indentation / s->column
 // are untouched; the caller relies on mark_end already having committed the
-// token end (the two-star boundary) for STRONG_STAR_OPEN.  The lexer position
-// is NOT restored: when the caller returns false, tree-sitter backtracks the
-// raw byte-stream position; when it returns true, the token end is the
-// already-committed mark_end.  `Scanner *s` is deliberately absent: for
-// close_char '*' the pipe-table branch of has_closing_delimiter_ge applies
-// unconditionally (s->in_pipe_table is only consulted for '`' and ']').
+// token end (the two-delimiter boundary) for the strong-open token.  The lexer
+// position is NOT restored: when the caller returns false, tree-sitter
+// backtracks the raw byte-stream position; when it returns true, the token end
+// is the already-committed mark_end.  `Scanner *s` is deliberately absent: for
+// the text-inline delimiters (`*`, `_`, `~`) the pipe-table branch of
+// has_closing_delimiter_ge applies unconditionally (s->in_pipe_table is only
+// consulted for '`' and ']').
 // ---------------------------------------------------------------------------
-// Result of star_run_lookahead.  Returned by value (rather than out-params)
+// Result of run_lookahead.  Returned by value (rather than out-params)
 // so the two boolean observations are not adjacent swappable pointer
 // parameters (bugprone-easily-swappable-parameters).
-struct star_run_lookahead_result {
+struct run_lookahead_result {
     uint32_t first_len;
     bool has_single;
     bool has_strong;
 };
 
 // NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity)
-static struct star_run_lookahead_result star_run_lookahead(TSLexer *lexer) {
-    struct star_run_lookahead_result result = {0, false, false};
+static struct run_lookahead_result run_lookahead(TSLexer *lexer,
+                                                 int32_t close_char) {
+    struct run_lookahead_result result = {0, false, false};
     bool prev_was_newline = false;
 
     while (!lexer->eof(lexer)) {
@@ -1676,14 +1684,25 @@ static struct star_run_lookahead_result star_run_lookahead(TSLexer *lexer) {
             return result;
         }
 
-        if (ch == '*') {
-            // Consume the whole run of `*`.
+        if (ch == close_char) {
+            // Consume the whole run of close_char.
             uint32_t rlen = 0;
             do {
                 rlen++;
                 lexer->advance(lexer, false);
-            } while (!lexer->eof(lexer) && lexer->lookahead == '*');
+            } while (!lexer->eof(lexer) && lexer->lookahead == close_char);
 
+            // An underscore run followed by an alphanumeric is folded by the
+            // lexer into an identifier_like_token / path_like_token /
+            // word_token (e.g. `build_log`, `_components` inside a path), so
+            // it never materializes as a delimiter run.  Treat it as NOT a run
+            // and keep scanning; otherwise a `__` run inside an identifier
+            // would be counted as a strong closer.  Only `_` needs this guard:
+            // `*` is never part of such a token.
+            if (close_char == '_' &&
+                !lexer->eof(lexer) && is_ascii_alnum(lexer->lookahead)) {
+                continue;
+            }
             if (result.first_len == 0) {
                 result.first_len = rlen;
             }
@@ -1834,7 +1853,7 @@ static bool parse_star(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
         !lexer->eof(lexer)) {
         // mark_end already committed at the two-star boundary, so the token
         // length is correct even though the lookahead advances further.
-        struct star_run_lookahead_result la = star_run_lookahead(lexer);
+        struct run_lookahead_result la = run_lookahead(lexer, '*');
         // B1 containment (issue #4): a run of 3+ stars whose first closer
         // candidate is a `**` strong closer AND that also has a leftover single
         // `*` run after it (`***a** b*`) is a phantom-closer trap — the inner
@@ -1966,9 +1985,23 @@ static bool parse_underscore(Scanner *s, TSLexer *lexer,
     if (strong_open && consecutive >= 2 && !line_end && extra_indentation == 0 &&
         !lexer->eof(lexer)) {
         // mark_end already committed at the two-underscore boundary, so the
-        // token length is correct even though has_closing_delimiter advances
-        // further.
-        if (has_closing_delimiter_ge(s, lexer, '_', 2)) {
+        // token length is correct even though the lookahead advances further.
+        struct run_lookahead_result la = run_lookahead(lexer, '_');
+        // B1 containment (issue #4), underscore analog: a run of 3+ `_` whose
+        // first closer candidate is a `__` strong closer AND that also has a
+        // leftover single `_` run after it (`___a__ b_`) is a phantom-closer
+        // trap — the inner `__` cannot close the outer strong and cannot open
+        // a nested strong, so it splits and consumes the strong's closer,
+        // leaving the strong unclosable and the paragraph unterminated (ERROR
+        // recovery then swallows the whole document, even following blocks).
+        // Degrade the whole run to literal text instead of committing a strong
+        // that can never close.
+        if (consecutive >= 3 && la.first_len >= 2 && la.has_single) {
+            return false;
+        }
+        // la.has_strong is equivalent to has_closing_delimiter_ge(s, lexer,
+        // '_', 2), so non-guard paths behave byte-identically.
+        if (la.has_strong) {
             lexer->result_symbol = STRONG_UNDERSCORE_OPEN;
             return true;
         }

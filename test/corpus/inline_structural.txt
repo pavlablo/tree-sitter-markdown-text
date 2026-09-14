@@ -1842,3 +1842,43 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+================================================================================
+Mixed underscore run ___a__ b_ degrades to text (B1 underscore containment)
+================================================================================
+___a__ b_
+
+# heading
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like))
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (word_token)
+          (operator_like))))
+    (blank_line))
+  (section
+    (atx_heading
+      level: (atx_h1_marker)
+      heading_content: (inline
+        (text_span
+          (word_token))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
