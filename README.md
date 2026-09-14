@@ -55,7 +55,7 @@ This fork fixes it with a shared lookahead mechanism (`has_closing_delimiter` / 
 - `_text\n_` &mdash; a lone closing `_` on its own line is not recognized as a closer (indistinguishable from a `___` thematic-break start without extra lookahead).
 - `***bold+italic***` &mdash; a run of three stars is not split into nested `strong`+`emphasis`; the whole run degrades to text.
 - A strikethrough closer (`~~`) alone on a new line is not formed, because a `~~~` fence is the more likely reading of that line start.
-- The block-boundary heuristic (`looks_like_block_start`) does not cover setext underlines (`===`), ordered-list items (`1. `), HTML block start tags, or indented code blocks; a closer following only such a boundary may not be found (still degrades to text, never an `ERROR`).
+- The block-boundary heuristic (`looks_like_block_start`) recognizes setext underlines (`===`), ordered-list items (`1. `), and CommonMark type-6 HTML block start tags (`<div>` / `</div>`). It deliberately does **not** treat indented code (4-space lines) or type-7 inline HTML (`<span>`) as block starts — per CommonMark those cannot interrupt a paragraph; a closer following only such a line may not be found (still degrades to text, never an `ERROR`).
 - An autolink at the very start of a line is not recognized (`<https://...>` at column 0 parses as an HTML block, not an autolink), because a block HTML tag takes precedence there.
 
 These additions are surfaced as new kinds in `src/node-types.json`; see the [Node kind reference](#node-kind-reference) below.
