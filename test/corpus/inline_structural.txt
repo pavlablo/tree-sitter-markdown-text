@@ -1712,3 +1712,62 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+================================================================================
+Multi-line inline code span (line ending normalized to space)
+================================================================================
+`a
+b`
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_code
+          (inline_code_delimiter)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_delimiter))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Inline code span with blank line inside degrades to text
+================================================================================
+`a
+
+b`
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like)
+          (word_token))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token)
+          (operator_like))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))

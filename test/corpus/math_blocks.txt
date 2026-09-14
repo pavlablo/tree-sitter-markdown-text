@@ -150,3 +150,86 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+================================================================================
+Single-line display math
+================================================================================
+$$math$$
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (math_block
+      (math_block_delimiter)
+      (math_block_content)
+      (math_block_delimiter))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Single-line display math with spaces
+================================================================================
+$$ E = mc^2 $$
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (math_block
+      (math_block_delimiter)
+      (math_block_content)
+      (math_block_delimiter))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Unclosed single-line dollar-dollar degrades to text
+================================================================================
+$$math
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like)
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Single dollar inside single-line math content
+================================================================================
+$$a$b$$
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (math_block
+      (math_block_delimiter)
+      (math_block_content)
+      (math_block_delimiter))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))

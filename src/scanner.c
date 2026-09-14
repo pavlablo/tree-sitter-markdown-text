@@ -1448,6 +1448,22 @@ static bool parse_backtick(Scanner *s, TSLexer *lexer,
         return false;
     }
 
+    // Absolute column of the first backtick of this run (the run start),
+    // captured before the run-counting loop below advances the lexer.  The
+    // lexer's `get_column` reports the column of the current position, so it
+    // must be read here rather than after `mark_end` (which would report the
+    // column *after* the run).  Used to reject a closing fence that is not at
+    // the start of a line: CommonMark 0.31.2 §4.5 allows a closing fence to be
+    // preceded only by up to three spaces of indentation, so a run preceded by
+    // content (`foo ``` `) or by 4+ columns of indentation is content, not a
+    // closer.  `s->indentation` is a dead guard inside a fence (reset at every
+    // line ending, never repopulated) and `s->column` is `% TAB_STOP`, so the
+    // lexer's absolute column is the correct primitive.  Inherited from
+    // upstream ophi-dev/tree-sitter-markdown-text (same dead-guard semantics
+    // in ea49260 parse_fenced_code_block; 92285d95 split it into
+    // parse_backtick/parse_tilde preserving the defect).
+    uint32_t run_column = lexer->get_column(lexer);
+
     // Count the run of backticks, remembering the single- and double-backtick
     // boundaries so an inline-code delimiter token covers exactly 1 or 2 chars
     // (mark_end commits the boundary even though has_closing_delimiter scans
@@ -1517,7 +1533,8 @@ static bool parse_backtick(Scanner *s, TSLexer *lexer,
         return false;
     }
     mark_end(s, lexer);
-    if (fence_end && level >= s->fenced_code_block_delimiter_length) {
+    if (fence_end && level >= s->fenced_code_block_delimiter_length &&
+        run_column <= MAX_NON_CODE_INDENT) {
         while (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
             advance(s, lexer);
         }
@@ -1837,6 +1854,14 @@ static bool parse_tilde(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
         return false;
     }
 
+    // Absolute column of the first tilde of this run (the run start), captured
+    // before the run-counting loop below advances the lexer.  Same rationale as
+    // parse_backtick: a closing fence may be preceded only by up to three
+    // spaces of indentation (CommonMark 0.31.2 §4.5); a run preceded by content
+    // or 4+ columns of indent is content, not a closer.  Inherited from
+    // upstream ophi-dev/tree-sitter-markdown-text (ea49260 / 92285d95).
+    uint32_t run_column = lexer->get_column(lexer);
+
     // Count the run of tildes, remembering the two-tilde boundary for
     // strikethrough and the full-run boundary for the fenced code block.
     uint32_t level = 0;
@@ -1875,7 +1900,8 @@ static bool parse_tilde(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
         return false;
     }
     mark_end(s, lexer);
-    if (fence_end && level >= s->fenced_code_block_delimiter_length) {
+    if (fence_end && level >= s->fenced_code_block_delimiter_length &&
+        run_column <= MAX_NON_CODE_INDENT) {
         while (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
             advance(s, lexer);
         }

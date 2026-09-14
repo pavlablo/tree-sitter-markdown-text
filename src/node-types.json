@@ -928,6 +928,10 @@
       "required": true,
       "types": [
         {
+          "type": "block_continuation",
+          "named": true
+        },
+        {
           "type": "inline_code_content",
           "named": true
         },
@@ -2005,7 +2009,7 @@
     "fields": {},
     "children": {
       "multiple": true,
-      "required": true,
+      "required": false,
       "types": [
         {
           "type": "bracket",

@@ -32,33 +32,56 @@ Status terms:
 - **Frequency note:** 0 occurrences observed in the 1395-file `rea-skills` corpus (2026-09-13),
   but the trigger is ordinary prose, so this is a latent landmine rather than a present-in-the-wild hit.
 
-## Contained ERRORs
+## Fixed (2026-09-14, branch `fix/emphasis-block-boundary`)
 
-### D1 — single-line display math `$$math$$` — NOT FIXED
-- **Symptom:** `$$math$$` → `ERROR` on the opening `$$`. Contained; a following heading
-  parses cleanly.
-- **Status:** ❌ **Not fixed.** Tracked in [issue #1](https://github.com/pavlablo/tree-sitter-markdown-text/issues/1).
+### D1 — single-line display math `$$math$$` — FIXED
+- **Symptom (was):** `$$math$$` → `ERROR` on the opening `$$`. Contained.
+- **Fix:** `math_block` gained a single-line alternative (`$$ content $$` on one line);
+  multi-line form, `$$$`-exclusion and mid-paragraph `$$`→`operator_like` unchanged.
+- **Status:** ✅ **Fixed.** [issue #1](https://github.com/pavlablo/tree-sitter-markdown-text/issues/1) closed.
 - **Frequency note:** 0 occurrences in the 1395-file corpus (2026-09-13).
 
-### D3 — multi-line inline code span (backtick across newline) — NOT FIXED
-- **Symptom:** `` `a\nb` `` → `ERROR`. CommonMark-valid input (§6.3). Contained.
-- **Status:** ❌ **Not fixed.** Tracked in [issue #3](https://github.com/pavlablo/tree-sitter-markdown-text/issues/3).
+### D3 — multi-line inline code span (backtick across newline) — FIXED
+- **Symptom (was):** `` `a\nb` `` → `ERROR`. CommonMark-valid input (§6.3). Contained.
+- **Fix:** `inline_code` content now accepts `_soft_line_break` (line ending normalized, per
+  §6.3); a blank line inside the span still correctly prevents it from forming.
+- **Status:** ✅ **Fixed.** [issue #3](https://github.com/pavlablo/tree-sitter-markdown-text/issues/3) closed.
 - **Frequency note:** 0 occurrences in the 1395-file corpus (2026-09-13).
 
-### D2 — unescaped `|` inside link/footnote labels in tables — PARTIALLY FIXED
-- **Symptom:** `| [x | y] | z |` → wrong structure (2 table cells merged instead of 3),
+### D2 — unescaped `|` inside link/footnote labels in tables — FIXED
+- **Symptom (was):** `| [x | y] | z |` → wrong structure (2 table cells merged instead of 3),
   valid nodes, no `ERROR`.
-- **Status:** The footnote-`ERROR` case was fixed by the C3 scanner change. The remaining
-  link/image wrong-structure (2 cells instead of GFM's 3) is deferred. Tracked in
-  [issue #2](https://github.com/pavlablo/tree-sitter-markdown-text/issues/2) (closed; the
-  deferred grammar-level follow-up is separate).
+- **Fix:** table-aware `_pipe_table_*` label rules (grammar-level) exclude unescaped `|` from
+  label content, so an unescaped `|` inside `[...]`/`![...]`/`[^...]` now splits the cell per
+  GFM §4.10 (3 cells, no fake link across the pipe); escaped `\|` stays literal content.
+- **Status:** ✅ **Fixed.** Closes the grammar-level follow-up of
+  [issue #2](https://github.com/pavlablo/tree-sitter-markdown-text/issues/2).
 
-### Embedded backtick-run ≥3 inside fenced code — NOT FIXED
-- **Symptom:** a fenced code block whose content contains a backtick run ≥3 embedded in a
-  line (e.g. a `jq`/`awk`/shell snippet like `sub("^```")`) produces an `ERROR` covering the
-  fence region. Contained; the following paragraph parses cleanly.
-- **Status:** ❌ **Not fixed.** **Tracking pending** — a new issue has not yet been filed.
-- **Frequency note:** hits ~10 of 1395 `rea-skills` files (2026-09-13).
+### Embedded backtick-run ≥3 inside fenced code — FIXED (was mischaracterized)
+- **Symptom (actual):** a fenced code block whose content contains a backtick/tilde run ≥ the
+  opening fence length at the **end of a content line** (or with 4+ columns of indent) was
+  wrongly treated as a closing fence (premature close; phantom unclosed fence swallowed
+  following content). Not an `ERROR` — silent wrong-structure. The previously-documented
+  `ERROR` example (`sub("^```")`) already parsed cleanly before this fix.
+- **Fix (scanner):** `fence_end` in `parse_backtick`/`parse_tilde` now requires the closing
+  run to be at line start (`lexer->get_column` ≤ `MAX_NON_CODE_INDENT`), per CommonMark §4.5.
+- **Status:** ✅ **Fixed.** Inherited-from-upstream defect (attribution in the fix commit).
+- **Frequency note:** the ~10 of 1395 `rea-skills` files (2026-09-13) that hit this class now
+  parse correctly.
+
+## Remaining
+
+### B1 — `***a** b*` (delimiter run-splitting) — NOT FIXED
+- **Symptom:** `***a** b*` produces an `ERROR` node. With a following blank line + heading,
+  the `ERROR` grows to cover **the entire remainder of the document** — the parser never
+  re-syncs to a clean block.
+- **Severity:** **cross-block** — swallows following content (headings, paragraphs).
+- **Status:** ❌ **Not fixed.** Tracked in [issue #4](https://github.com/pavlablo/tree-sitter-markdown-text/issues/4).
+  A containment fix (grammar-level error recovery, bounding the `ERROR` to the block instead
+  of the whole file) is planned on branch `fix/grammar-error-recovery` (not yet created). A
+  full CommonMark-correct fix requires delimiter run-splitting.
+- **Frequency note:** 0 occurrences observed in the 1395-file `rea-skills` corpus (2026-09-13),
+  but the trigger is ordinary prose, so this is a latent landmine rather than a present-in-the-wild hit.
 
 ### Wide / machine-generated pipe tables — NOT FIXED
 - **Symptom:** long, machine-generated pipe tables (e.g. a `shellcheck` report rendered as a

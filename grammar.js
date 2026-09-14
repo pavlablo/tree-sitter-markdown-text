@@ -129,6 +129,54 @@ export default grammar({
     // Bracket punctuation allowed in a label: everything except `[`/`]`.
     _label_bracket: ($) => alias(choice('(', ')', '{', '}', '<', '>'), $.bracket),
 
+    // Pipe-table variants of the label element sets.  GFM §4.10: an unescaped
+    // `|` is a cell separator even inside a link/image/footnote label, so a
+    // label opened in one cell cannot span cells.  These variants reuse the
+    // normal label structure but swap in `_pipe_table_operator_like` (which
+    // excludes `|`) for `operator_like`, so a bare `|` inside `[...]` /
+    // `![...]` / `[^...]` is never consumed as label content and instead
+    // splits the cell (mirroring how `_pipe_table_text_span` already excludes
+    // `|` from plain cell text).  The PUBLIC node kinds are unchanged: at the
+    // use sites below the pipe-table labels still alias to `link_label` /
+    // `text_span` etc., so `node-types.json` public kinds do not change.
+    _pipe_table_link_label: ($) => seq('[', repeat1(choice(
+      $._pipe_table_label_element,
+      $._pipe_table_label_nested_brackets,
+      $._soft_line_break,
+    )), ']'),
+    _pipe_table_label_nested_brackets: ($) => seq('[', repeat(choice(
+      $._pipe_table_label_element,
+      $._pipe_table_label_nested_brackets,
+      $._soft_line_break,
+    )), ']'),
+    _pipe_table_label_element: ($) => choice(
+      $._whitespace,
+      $.inline_code,
+      $.autolink,
+      $.html_inline,
+      $.mdx_jsx_inline,
+      $.math_inline,
+      $.strong,
+      $.emphasis,
+      $.strikethrough,
+      $.backslash_escape,
+      $.entity_reference,
+      $.numeric_character_reference,
+      alias($._pipe_table_label_text, $.text_span),
+    ),
+    // Runs of plain text tokens inside a pipe-table label: `_label_text` with
+    // `_pipe_table_operator_like` (no `|`) in place of `operator_like`.
+    _pipe_table_label_text: ($) => prec.right(repeat1(choice(
+      $.numeric_token,
+      $.path_like_token,
+      $.identifier_like_token,
+      $.word_token,
+      $.terminator,
+      $.separator,
+      $._label_bracket,
+      $._pipe_table_operator_like,
+    ))),
+
     link_destination: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, choice(
       seq('<', repeat(choice($._text_no_angle, $.backslash_escape, $.entity_reference, $.numeric_character_reference)), '>'),
       seq(
@@ -445,17 +493,48 @@ export default grammar({
     // check in the scanner (has_closing_delimiter).  The opening `$$` is
     // required to sit alone on its own line; an unclosed `$$` degrades to
     // ordinary text instead of swallowing the rest of the document.
-    math_block: ($) => prec.dynamic(PRECEDENCE_LEVEL_MATH_BLOCK, seq(
-      alias($._math_block_open, $.math_block_delimiter),
-      $._newline,
-      optional($.math_block_content),
-      alias($._math_block_close, $.math_block_delimiter),
-      choice($._newline, $._eof),
+    math_block: ($) => prec.dynamic(PRECEDENCE_LEVEL_MATH_BLOCK, choice(
+      // Multi-line form:
+      //   $$
+      //   formula
+      //   $$
+      // The opening `$$` sits alone on its own line; content spans lines and
+      // the closing `$$` sits alone on its own line.
+      seq(
+        alias($._math_block_open, $.math_block_delimiter),
+        $._newline,
+        optional($.math_block_content),
+        alias($._math_block_close, $.math_block_delimiter),
+        choice($._newline, $._eof),
+      ),
+      // Single-line form: `$$ formula $$` on one line.  The closing `$$` must
+      // appear before the end of the line.  Content is the text between the two
+      // `$$` runs and may contain a single `$` (`$$a$b$$`); a `$$` run inside
+      // content is never consumed (the external MATH_BLOCK_CLOSE_DELIMITER
+      // token wins at the closer), so `$$a$$b$$` degrades to text rather than
+      // mis-nesting.
+      seq(
+        alias($._math_block_open, $.math_block_delimiter),
+        optional(alias($._math_block_single_line_content, $.math_block_content)),
+        alias($._math_block_close, $.math_block_delimiter),
+        choice($._newline, $._eof),
+      ),
     )),
     // _math_block_open / _math_block_close are external scanner tokens
     // (MATH_BLOCK_OPEN_DELIMITER/MATH_BLOCK_CLOSE_DELIMITER).  A run of
     // EXACTLY two `$` is the delimiter; `$$$` is not a math-block delimiter.
     math_block_content: ($) => prec.right(repeat1(choice($._line, $._newline))),
+    // Single-line display-math content: text on the opening `$$`'s line, up to
+    // (but not including) the closing `$$`.  Excludes `_newline` (the
+    // multi-line form owns content that spans lines) and stops before a `$$`
+    // run; a lone `$` is ordinary content.  Hidden: aliased to
+    // `$.math_block_content` so the emitted tree matches the multi-line form.
+    _math_block_single_line_content: ($) => prec.right(repeat1(choice(
+      $._word,
+      $._whitespace,
+      punctuation_without($, ['$']),
+      '$',
+    ))),
 
     // A directive block (`:::name ... :::`). Implemented following the syntax
     // used by remark-directive / MyST / Pandoc fenced divs: a line opening
@@ -867,12 +946,23 @@ export default grammar({
     // matching closer run exists before the next block boundary, so an
     // unclosed backtick degrades to ordinary text instead of a runaway
     // ERROR.
+    //
+    // A code span may cross a single line ending: CommonMark 0.31.2 §6.3
+    // normalizes line endings inside a code span to spaces, and forbids only
+    // two consecutive line endings (a blank line).  `_soft_line_break` matches
+    // exactly ONE line ending (SOFT_LINE_ENDING + optional block continuation),
+    // so `` `a\nb` `` assembles as one inline_code.  The blank-line exclusion
+    // is preserved on both sides: the scanner never emits an OPEN when no
+    // closer exists before a blank line (has_closing_delimiter stops at `\n\n`),
+    // and `_soft_line_break` cannot match two consecutive line endings.  Same
+    // mechanism as the multi-line emphasis fix (Bug 5).
     inline_code: ($) => choice(
       seq(
         alias($._inline_code_backtick_1_open, $.inline_code_delimiter),
         repeat(choice(
           alias(/[^`\n\r]+/, $.inline_code_content),
           alias($._inline_code_backtick_run, $.inline_code_content),
+          $._soft_line_break,
         )),
         alias($._inline_code_backtick_1_close, $.inline_code_delimiter),
       ),
@@ -881,6 +971,7 @@ export default grammar({
         repeat(choice(
           alias(/([^`\n\r]|`[^`\n\r])+/, $.inline_code_content),
           alias($._inline_code_backtick_run, $.inline_code_content),
+          $._soft_line_break,
         )),
         alias($._inline_code_backtick_2_close, $.inline_code_delimiter),
       ),
@@ -1205,7 +1296,10 @@ export default grammar({
     // Structured inline content inside a table cell.  Consumers can now query
     // links, emphasis, strong, etc. inside cells.  The `|` column separator is
     // deliberately excluded from every token here so a bare `|` still splits
-    // cells; `_pipe_table_operator_like` is `operator_like` minus `|`.
+    // cells; `_pipe_table_operator_like` is `operator_like` minus `|`.  Link,
+    // image and footnote constructs use their `_pipe_table_*` variants below
+    // so an unescaped `|` inside a label / destination / title is also never
+    // absorbed (GFM §4.10).
     _pipe_table_inline_content: ($) => prec.right(repeat1(choice(
       $._whitespace,
       $.inline_code,
@@ -1213,12 +1307,12 @@ export default grammar({
       $.html_inline,
       $.mdx_jsx_inline,
       $.math_inline,
-      $.image,
-      $.footnote_reference,
-      $.inline_link,
-      $.full_reference_link,
-      $.collapsed_reference_link,
-      $.shortcut_link,
+      alias($._pipe_table_image, $.image),
+      alias($._pipe_table_footnote_reference, $.footnote_reference),
+      alias($._pipe_table_inline_link, $.inline_link),
+      alias($._pipe_table_full_reference_link, $.full_reference_link),
+      alias($._pipe_table_collapsed_reference_link, $.collapsed_reference_link),
+      alias($._pipe_table_shortcut_link, $.shortcut_link),
       $.strong,
       $.emphasis,
       $.strikethrough,
@@ -1242,6 +1336,107 @@ export default grammar({
       $._unicode_punctuation_run,
       '=', '+', '-', '*', '/', '&',
       '"', '#', '$', '%', '\'', '@', '\\', '^', '_', '`', '~',
+    ),
+
+    // Pipe-table variants of the link/image/footnote rules used inside
+    // `_pipe_table_inline_content`.  They reuse the public non-table shapes
+    // (same node kinds: `link_label`, `inline_link`, `image`, ...) but source
+    // label / destination / title content from the `|`-excluding sets above so
+    // an unescaped `|` splits the cell instead of being absorbed (GFM §4.10).
+    _pipe_table_image: ($) => prec.dynamic(PRECEDENCE_LEVEL_IMAGE, prec.right(seq(
+      '!',
+      alias($._pipe_table_link_label, $.link_label),
+      optional(choice(
+        seq('(', optional($._whitespace), optional(alias($._pipe_table_link_destination, $.link_destination)),
+          optional(seq($._whitespace, alias($._pipe_table_link_title, $.link_title))),
+          optional($._whitespace), ')'),
+        prec(1, alias($._pipe_table_link_label, $.link_label)),
+        prec(1, seq('[', ']')),
+      )),
+    ))),
+    _pipe_table_inline_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, seq(
+      alias($._pipe_table_link_label, $.link_label),
+      '(', optional($._whitespace), optional(alias($._pipe_table_link_destination, $.link_destination)),
+      optional(seq($._whitespace, alias($._pipe_table_link_title, $.link_title))),
+      optional($._whitespace), ')')),
+    _pipe_table_full_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(1, seq(
+      alias($._pipe_table_link_label, $.link_label),
+      alias($._pipe_table_link_label, $.link_label)))),
+    _pipe_table_collapsed_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, seq(
+      alias($._pipe_table_link_label, $.link_label), '[', ']')),
+    _pipe_table_shortcut_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(0, alias($._pipe_table_link_label, $.link_label))),
+    // Footnote reference `[^id]` inside a pipe-table cell: same external
+    // `[^` token (the scanner already refuses to emit it when the `]`-closer
+    // would cross an unescaped `|`), with `|` excluded from the label content
+    // as a second line of defence.
+    _pipe_table_footnote_reference: ($) => seq(
+      alias($._footnote_ref_open, $.footnote_reference_open),
+      alias(repeat1(choice(
+        $._word,
+        punctuation_without($, ['[', ']', '^', '|']),
+      )), $.footnote_reference_label),
+      ']',
+    ),
+    // Destination / title variants that exclude an unescaped `|` (same shape
+    // as `link_destination` / `link_title`).
+    _pipe_table_link_destination: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, choice(
+      seq('<', repeat(choice($._pipe_table_text_no_angle, $.backslash_escape, $.entity_reference, $.numeric_character_reference)), '>'),
+      seq(
+        choice(
+          $._word,
+          punctuation_without($, ['<', '(', ')', '|']),
+          $.backslash_escape,
+          $.entity_reference,
+          $.numeric_character_reference,
+          $._pipe_table_link_destination_parenthesis,
+        ),
+        repeat(choice(
+          $._word,
+          punctuation_without($, ['(', ')', '|']),
+          $.backslash_escape,
+          $.entity_reference,
+          $.numeric_character_reference,
+          $._pipe_table_link_destination_parenthesis,
+        )),
+      ),
+    )),
+    _pipe_table_link_destination_parenthesis: ($) => seq('(', repeat(choice(
+      $._word,
+      punctuation_without($, ['(', ')', '|']),
+      $.backslash_escape,
+      $.entity_reference,
+      $.numeric_character_reference,
+      $._pipe_table_link_destination_parenthesis,
+    )), ')'),
+    _pipe_table_text_no_angle: ($) => choice($._word, punctuation_without($, ['<', '>', '|']), $._whitespace),
+    _pipe_table_link_title: ($) => choice(
+      seq('"', repeat(choice(
+        $._word,
+        punctuation_without($, ['"', '|']),
+        $._whitespace,
+        $.backslash_escape,
+        $.entity_reference,
+        $.numeric_character_reference,
+        seq($._soft_line_break, optional(seq($._soft_line_break, $._trigger_error))),
+      )), '"'),
+      seq('\'', repeat(choice(
+        $._word,
+        punctuation_without($, ['\'', '|']),
+        $._whitespace,
+        $.backslash_escape,
+        $.entity_reference,
+        $.numeric_character_reference,
+        seq($._soft_line_break, optional(seq($._soft_line_break, $._trigger_error))),
+      )), '\''),
+      seq('(', repeat(choice(
+        $._word,
+        punctuation_without($, ['(', ')', '|']),
+        $._whitespace,
+        $.backslash_escape,
+        $.entity_reference,
+        $.numeric_character_reference,
+        seq($._soft_line_break, optional(seq($._soft_line_break, $._trigger_error))),
+      )), ')'),
     ),
   },
 
@@ -1345,6 +1540,7 @@ export default grammar({
     [$.footnote_label, $._text_inline_no_link],
     // Inline-content conflicts.
     [$.link_label, $.bracket],
+    [$._pipe_table_link_label, $.bracket],
     [$.link_label, $._callout_header_paragraph, $.bracket],
     [$.link_label, $._callout_marker_open, $.bracket],
     [$.footnote_label, $.bracket],
@@ -1363,13 +1559,17 @@ export default grammar({
     [$.footnote_definition, $.link_reference_definition, $._inline_element],
     [$.image_block, $._inline_element],
     [$.terminator, $.image],
+    [$.terminator, $._pipe_table_image],
     [$.footnote_label, $.footnote_reference],
     [$.footnote_definition, $._inline_element],
     [$.image_block, $.image],
     [$.link_destination, $.link_title],
+    [$._pipe_table_link_destination, $._pipe_table_link_title],
     [$._link_destination_parenthesis, $.link_title],
+    [$._pipe_table_link_destination_parenthesis, $._pipe_table_link_title],
     [$.link_reference_definition, $.shortcut_link],
     [$.inline_link, $.shortcut_link],
+    [$._pipe_table_inline_link, $._pipe_table_shortcut_link],
     [$.link_label, $.footnote_label, $.bracket, $.footnote_reference],
     [$.link_label, $.bracket, $.footnote_reference],
     [$.footnote_label, $._text_inline_no_link, $.footnote_reference],
