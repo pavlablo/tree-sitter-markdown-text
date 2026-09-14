@@ -694,6 +694,33 @@ static void consume_line_ending(Scanner *s, TSLexer *lexer) {
     }
 }
 
+// Lexer-only sibling of consume_line_ending: consumes ONE line ending — LF,
+// CR, or CRLF — as a single line ending, using only raw lexer->advance (no
+// Scanner-struct mutation, so it is safe inside the closer-search lookahead
+// loops, whose callers restore the byte position on backtrack).
+//
+// Why this matters (CRLF class): a CRLF file must treat `\r\n` as ONE line
+// ending (CommonMark §2.3).  The closer-search loops scan one character at a
+// time; if a `\r` were followed by a `\n` counted as a SECOND line ending, a
+// single CRLF softbreak would look like a blank line (two consecutive line
+// endings), aborting the closer search and losing multi-line emphasis (b1),
+// math blocks (b2), and directive blocks (b3) on CRLF files.  LF-only input
+// is byte-identical: a lone `\n` consumes exactly one character.  A real
+// blank line (`\r\n\r\n`) still reads as two line endings because the second
+// `\r` is a separate call site iteration, so blank-line detection is
+// preserved.
+// NOLINTNEXTLINE(readability-identifier-length)
+static void consume_line_ending_raw(TSLexer *lexer) {
+    if (lexer->lookahead == '\r') {
+        lexer->advance(lexer, false);
+        if (lexer->lookahead == '\n') {
+            lexer->advance(lexer, false);
+        }
+    } else {
+        lexer->advance(lexer, false);
+    }
+}
+
 // NOLINTNEXTLINE(readability-identifier-length)
 static void skip_horizontal_space(Scanner *s, TSLexer *lexer) {
     while (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
@@ -969,7 +996,7 @@ static bool has_closing_delimiter(Scanner *s, TSLexer *lexer,
             }
             prev_was_newline = true;
             prev_char = 0;
-            lexer->advance(lexer, false);
+            consume_line_ending_raw(lexer);
             continue;
         }
 
@@ -1102,7 +1129,7 @@ static bool has_closing_delimiter_ge(Scanner *s, TSLexer *lexer,
             }
             prev_was_newline = true;
             prev_char = 0;
-            lexer->advance(lexer, false);
+            consume_line_ending_raw(lexer);
             continue;
         }
 
@@ -1635,7 +1662,7 @@ static struct run_lookahead_result run_lookahead(TSLexer *lexer,
                 return result;
             }
             prev_was_newline = true;
-            lexer->advance(lexer, false);
+            consume_line_ending_raw(lexer);
             continue;
         }
 
