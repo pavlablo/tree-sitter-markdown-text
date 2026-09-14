@@ -183,6 +183,23 @@ static bool is_ascii_alnum(int32_t codepoint) {
     return is_ascii_alpha(codepoint) || is_ascii_digit(codepoint);
 }
 
+// Returns true when `ch` can begin a footnote label as defined in grammar.js
+// (footnote_reference / footnote_label): the label is
+// repeat1(choice(_word, punctuation_without($, ['[', ']', '^']))), so the first
+// character must be a non-whitespace word char or a punctuation char other than
+// `[`, `]`, `^`.  Whitespace, the excluded brackets and EOF can never start a
+// label; gating FOOTNOTE_REF_OPEN on this keeps an empty label (`[^]`, `[^ ]`)
+// from stranding the open token in a contained ERROR.
+static bool is_footnote_label_char(int32_t ch) {
+    if (ch == 0 || ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
+        return false;
+    }
+    if (is_punctuation((char)ch)) {
+        return ch != '[' && ch != ']' && ch != '^';
+    }
+    return true;
+}
+
 static char ascii_tolower(int32_t codepoint) {
     if (codepoint >= 'A' && codepoint <= 'Z') {
         return (char)(codepoint - 'A' + 'a');
@@ -1404,12 +1421,16 @@ static bool parse_bracket_open(Scanner *s, TSLexer *lexer,
     advance(s, lexer); // consume '['
 
     // Footnote reference: '[^'.  The open is only emitted when a closing ']'
-    // exists before the next block boundary; an unclosed '[^' degrades to
-    // ordinary text instead of a runaway ERROR.
+    // exists before the next block boundary AND a usable label character
+    // follows: the grammar requires the label to be repeat1(...), so an empty
+    // label — `[^]`, `[^ ]`, `[^]:` — can never form a reference or definition.
+    // Emitting the open then would strand it in a contained ERROR; fall through
+    // so '[' re-lexes as a plain bracket and the text stays literal.
     if (footnote && lexer->lookahead == '^') {
         advance(s, lexer); // consume '^'
         mark_end(s, lexer); // token = the two-char `[^`
-        if (has_closing_delimiter(s, lexer, ']', 1)) {
+        if (is_footnote_label_char(lexer->lookahead) &&
+            has_closing_delimiter(s, lexer, ']', 1)) {
             lexer->result_symbol = FOOTNOTE_REF_OPEN;
             return true;
         }

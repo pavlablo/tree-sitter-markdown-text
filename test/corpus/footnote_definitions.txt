@@ -143,3 +143,29 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+================================================================================
+Empty footnote label [^] degrades to text
+================================================================================
+empty [^] here.
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (shortcut_link
+          (link_label
+            (text_span
+              (operator_like))))
+        (text_span
+          (word_token)
+          (terminator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
