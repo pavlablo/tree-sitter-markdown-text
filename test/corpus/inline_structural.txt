@@ -1771,3 +1771,74 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+================================================================================
+Mixed delimiter run ***a** b* degrades to text (B1 containment)
+================================================================================
+***a** b*
+
+# heading
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like))
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (word_token)
+          (operator_like))))
+    (blank_line))
+  (section
+    (atx_heading
+      level: (atx_h1_marker)
+      heading_content: (inline
+        (text_span
+          (word_token))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Nested ***a **b** c* degrades to text (B1 containment)
+================================================================================
+***a **b** c*
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like))
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (word_token)
+          (operator_like)
+          (operator_like))
+        (text_span
+          (word_token)
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
