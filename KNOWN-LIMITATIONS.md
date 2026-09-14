@@ -18,19 +18,27 @@ Status terms:
 
 ---
 
-## Cross-block (worst severity)
+## Cross-block (worst severity) — ELIMINATED (2026-09-14)
 
-### B1 — `***a** b*` (delimiter run-splitting) — NOT FIXED
-- **Symptom:** `***a** b*` produces an `ERROR` node. With a following blank line + heading,
-  the `ERROR` grows to cover **the entire remainder of the document** — the parser never
-  re-syncs to a clean block.
-- **Severity:** **cross-block** — swallows following content (headings, paragraphs).
-- **Status:** ❌ **Not fixed.** Tracked in [issue #4](https://github.com/pavlablo/tree-sitter-markdown-text/issues/4).
-  A containment fix (grammar-level error recovery, bounding the `ERROR` to the block instead
-  of the whole file) is in progress on branch `fix/grammar-error-recovery`. A full
-  CommonMark-correct fix requires delimiter run-splitting.
+The only cross-block `ERROR` class (B1) is now **contained** via scanner guards: it degrades to
+literal text instead of swallowing the document. **No cross-block issues remain.**
+
+### B1 — `***a** b*` / `___a__ b_` (delimiter run-splitting) — CONTAINED
+- **Symptom (was):** `***a** b*` (and `___a__ b_`) produced an `ERROR` that grew to cover
+  **the entire remainder of the document** — the parser never re-synced to a clean block.
+- **Severity (was):** **cross-block** — swallowed headings, paragraphs, lists, fences.
+- **Status:** ✅ **Contained.** Scanner guards (`parse_star` + `parse_underscore`, via the shared
+  `run_lookahead` helper) refuse a phantom strong-open for the mixed-run shapes, so they degrade
+  to literal text with clean following blocks — 0 `ERROR`. Commits `7062b98` (star) +
+  `47a44ec` (underscore); regression guard SAFE-TO-TAG; corpus 161/161; `node-types.json`
+  unchanged; ABI 14. Tracked in [issue #4](https://github.com/pavlablo/tree-sitter-markdown-text/issues/4)
+  (ERROR class closed).
+- **Remaining (spec-correct, NOT contained):** the CommonMark-correct tree (`***foo** bar*` →
+  `em(strong(foo) bar)`; `***both***` → `em(strong(both))`) requires delimiter run-splitting,
+  blocked by the forward-only `mark_end` constraint in the external scanner. Tracked in
+  [issue #7](https://github.com/pavlablo/tree-sitter-markdown-text/issues/7).
 - **Frequency note:** 0 occurrences observed in the 1395-file `rea-skills` corpus (2026-09-13),
-  but the trigger is ordinary prose, so this is a latent landmine rather than a present-in-the-wild hit.
+  but the trigger is ordinary prose, so this was a latent landmine rather than a present-in-the-wild hit.
 
 ## Fixed (2026-09-14, branch `fix/emphasis-block-boundary`)
 
@@ -70,18 +78,6 @@ Status terms:
   parse correctly.
 
 ## Remaining
-
-### B1 — `***a** b*` (delimiter run-splitting) — NOT FIXED
-- **Symptom:** `***a** b*` produces an `ERROR` node. With a following blank line + heading,
-  the `ERROR` grows to cover **the entire remainder of the document** — the parser never
-  re-syncs to a clean block.
-- **Severity:** **cross-block** — swallows following content (headings, paragraphs).
-- **Status:** ❌ **Not fixed.** Tracked in [issue #4](https://github.com/pavlablo/tree-sitter-markdown-text/issues/4).
-  A containment fix (grammar-level error recovery, bounding the `ERROR` to the block instead
-  of the whole file) is planned on branch `fix/grammar-error-recovery` (not yet created). A
-  full CommonMark-correct fix requires delimiter run-splitting.
-- **Frequency note:** 0 occurrences observed in the 1395-file `rea-skills` corpus (2026-09-13),
-  but the trigger is ordinary prose, so this is a latent landmine rather than a present-in-the-wild hit.
 
 ### Wide / machine-generated pipe tables — NOT FIXED
 - **Symptom:** long, machine-generated pipe tables (e.g. a `shellcheck` report rendered as a
