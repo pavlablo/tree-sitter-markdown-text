@@ -541,6 +541,57 @@ Trailing paragraph.
           (terminator))))))
 
 ================================================================================
+Single-letter autolink scheme
+================================================================================
+Try <a:x> here and <http://ex.com> there.
+<1a:x> is not a scheme, stay literal.
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (autolink
+          (uri))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (autolink
+          (uri))
+        (text_span
+          (word_token)
+          (terminator))
+        (text_span
+          (bracket)
+          (identifier_like_token)
+          (separator)
+          (word_token)
+          (bracket))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (separator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
 Inline HTML tag
 ================================================================================
 See <span>raw</span> here.
@@ -1872,6 +1923,35 @@ Trailing paragraph.
     (atx_heading
       level: (atx_h1_marker)
       heading_content: (inline
+        (text_span
+          (word_token))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Non-breaking space inside emphasis (NBSP)
+================================================================================
+word *x * tail
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (emphasis
+          (emphasis_delimiter)
+          (emphasis_content
+            (word_token))
+          (emphasis_delimiter))
         (text_span
           (word_token))))
     (blank_line)

@@ -6343,7 +6343,7 @@
     },
     "_whitespace": {
       "type": "PATTERN",
-      "value": "[ \\t]+"
+      "value": "[ \\t\\u00A0]+"
     },
     "_inline_content": {
       "type": "PREC_RIGHT",
@@ -6890,7 +6890,7 @@
               "type": "ALIAS",
               "content": {
                 "type": "PATTERN",
-                "value": "[A-Za-z][A-Za-z0-9+.\\-]{1,31}:[^<> \\t\\n\\r]+"
+                "value": "[A-Za-z][A-Za-z0-9+.\\-]*:[^<> \\t\\n\\r]+"
               },
               "named": true,
               "value": "uri"

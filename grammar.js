@@ -805,7 +805,10 @@ export default grammar({
       /\[[xX]\]/,
       /\[[ \t]\]/,
     ),
-    _whitespace: ($) => /[ \t]+/,
+    // CommonMark §2.3: Unicode whitespace includes NBSP (U+00A0, Zs category)
+    // in addition to space/tab.  NBSP therefore tokenizes as whitespace exactly
+    // like a regular space (hidden node), never falling into ERROR.
+    _whitespace: ($) => /[ \t\u00A0]+/,
 
     // ---------------------------------------------------------------------
     // INLINE CONTENT
@@ -989,7 +992,7 @@ export default grammar({
     autolink: ($) => choice(
       seq(
         $._autolink_open,
-        alias(/[A-Za-z][A-Za-z0-9+.\-]{1,31}:[^<> \t\n\r]+/, $.uri),
+        alias(/[A-Za-z][A-Za-z0-9+.\-]*:[^<> \t\n\r]+/, $.uri),
         '>',
       ),
       seq(
