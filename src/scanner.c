@@ -1433,6 +1433,30 @@ static bool parse_math_inline_delimiter(Scanner *s, TSLexer *lexer,
 // NOLINTEND(readability-identifier-length,readability-magic-numbers,readability-function-cognitive-complexity)
 
 
+// Consume a MyST attribute `{label}`: an opening `{`, optional label
+// characters (anything up to a `}`, never crossing a line ending), and the
+// closing `}`.  Returns false when the attribute is malformed (unclosed brace
+// or end of line/file before the `}`); the caller then restores the scanner
+// state so the opener degrades to ordinary text.  Only called with the lexer
+// positioned on `{`.
+// NOLINTBEGIN(readability-identifier-length)
+static bool consume_directive_attribute(Scanner *s, TSLexer *lexer) {
+    advance(s, lexer); // consume `{`
+    while (!lexer->eof(lexer) &&
+           lexer->lookahead != '}' &&
+           lexer->lookahead != '\n' &&
+           lexer->lookahead != '\r') {
+        advance(s, lexer);
+    }
+    if (lexer->eof(lexer) || lexer->lookahead != '}') {
+        return false;
+    }
+    advance(s, lexer); // consume `}`
+    return true;
+}
+// NOLINTEND(readability-identifier-length)
+
+
 // NOLINTBEGIN(readability-identifier-length,readability-magic-numbers,readability-function-cognitive-complexity)
 static bool parse_colon(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
     bool block_open = valid_symbols[DIRECTIVE_BLOCK_OPEN_DELIMITER];
@@ -1445,6 +1469,31 @@ static bool parse_colon(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
     uint8_t start_column = s->column;
     advance(s, lexer);
     advance(s, lexer);
+    if (lexer->lookahead == '{') {
+        // MyST attribute-style opener `::{label}`: exactly two colons
+        // immediately followed by `{`, optional label chars, and `}` — the
+        // braced label is the directive's name/class (MyST fenced-div
+        // attribute form, cf. remark-directive).  The token extent is just
+        // `::` (mark_end before the `{`); the grammar's directive_name rule
+        // consumes the `{label}` attribute.  The opener still requires a
+        // `:::` closer ahead (same gate as the three-colon form), so an
+        // unclosed or malformed `::{` degrades to ordinary text like a lone
+        // `::` instead of swallowing the document.
+        if (!block_open) {
+            s->indentation = start_indentation;
+            s->column = start_column;
+            return false;
+        }
+        mark_end(s, lexer); // token extent = `::` (before the `{`)
+        if (consume_directive_attribute(s, lexer) &&
+            has_closing_delimiter(s, lexer, ':', DIRECTIVE_DELIMITER_LENGTH)) {
+            lexer->result_symbol = DIRECTIVE_BLOCK_OPEN_DELIMITER;
+            return true;
+        }
+        s->indentation = start_indentation;
+        s->column = start_column;
+        return false;
+    }
     if (lexer->lookahead != ':') {
         // A run of one or two colons (`:` / `::`) is not a directive
         // delimiter.
