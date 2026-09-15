@@ -124,6 +124,7 @@ typedef enum {
     STRIKETHROUGH_CLOSE,
     AUTOLINK_OPEN,
     FOOTNOTE_REF_OPEN,
+    FOOTNOTE_DEFINITION_START,
     INLINE_CODE_BACKTICK_1_OPEN,
     INLINE_CODE_BACKTICK_1_CLOSE,
     INLINE_CODE_BACKTICK_2_OPEN,
@@ -269,6 +270,11 @@ static const bool paragraph_interrupt_symbols[SCANNER_TOKEN_TYPE_COUNT] = {
     [HTML_BLOCK_5_START] = true,
     [HTML_BLOCK_6_START] = true,
     [PIPE_TABLE_START] = true,
+    // A GFM footnote definition `[^label]:` at the start of a line interrupts
+    // a paragraph (cmark-gfm's scan_footnote_definition sits in the block
+    // opening chain with no paragraph guard), unlike link reference
+    // definitions which cannot interrupt a paragraph (CommonMark §4.7).
+    [FOOTNOTE_DEFINITION_START] = true,
 };
 
 // State bitflags used with `Scanner.state`.
@@ -1478,42 +1484,70 @@ static bool parse_colon(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
 
 
 // NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
-// A '[' at a token start could begin a footnote reference (`[^id]`), a task
-// list marker (`[x]` / `[ ]`), or a plain bracket (link label / shortcut).
-// All three are disambiguated by the character after the '['.  We consume the
-// '[' exactly once and branch on the second character; if none of the
-// scanner-emitted tokens apply we return false, letting tree-sitter rewind the
-// byte position and treat '[' as an ordinary bracket.  (We deliberately do NOT
-// chain a second parse_* after a failed one: the lexer byte position only
-// rewinds when the whole scan() returns false, not between internal calls.)
+// A '[' at a token start could begin a footnote reference (`[^id]`), a footnote
+// definition (`[^label]:` — only at a block boundary, where it interrupts a
+// paragraph), a task list marker (`[x]` / `[ ]`), or a plain bracket (link
+// label / shortcut).  All are disambiguated by the character after the '['.
+// We consume the '[' exactly once and branch on the second character; if none
+// of the scanner-emitted tokens apply we return false, letting tree-sitter
+// rewind the byte position and treat '[' as an ordinary bracket.  (We
+// deliberately do NOT chain a second parse_* after a failed one: the lexer byte
+// position only rewinds when the whole scan() returns false, not between
+// internal calls.)
 static bool parse_bracket_open(Scanner *s, TSLexer *lexer,
                                const bool *valid_symbols) {
     if (lexer->lookahead != '[') {
         return false;
     }
     bool footnote = valid_symbols[FOOTNOTE_REF_OPEN];
+    bool footnote_def = valid_symbols[FOOTNOTE_DEFINITION_START];
     bool task_list = valid_symbols[TASK_LIST_MARKER_CHECKED] ||
                      valid_symbols[TASK_LIST_MARKER_UNCHECKED];
-    if (!footnote && !task_list) {
+    if (!footnote && !footnote_def && !task_list) {
         return false;
     }
     uint16_t start_indentation = s->indentation;
     uint8_t start_column = s->column;
     advance(s, lexer); // consume '['
 
-    // Footnote reference: '[^'.  The open is only emitted when a closing ']'
-    // exists before the next block boundary AND a usable label character
-    // follows: the grammar requires the label to be repeat1(...), so an empty
-    // label — `[^]`, `[^ ]`, `[^]:` — can never form a reference or definition.
-    // Emitting the open then would strand it in a contained ERROR; fall through
-    // so '[' re-lexes as a plain bracket and the text stays literal.
-    if (footnote && lexer->lookahead == '^') {
+    // Footnote reference / definition: '[^'.  The open is only emitted when a
+    // usable label character follows: the grammar requires the label to be
+    // repeat1(...), so an empty label — `[^]`, `[^ ]`, `[^]:` — can never form
+    // a reference or definition.  Emitting the open then would strand it in a
+    // contained ERROR; fall through so '[' re-lexes as a plain bracket and the
+    // text stays literal.
+    if ((footnote || footnote_def) && lexer->lookahead == '^') {
         advance(s, lexer); // consume '^'
         mark_end(s, lexer); // token = the two-char `[^`
-        if (is_footnote_label_char(lexer->lookahead) &&
-            has_closing_delimiter(s, lexer, ']', 1)) {
-            lexer->result_symbol = FOOTNOTE_REF_OPEN;
-            return true;
+        if (is_footnote_label_char(lexer->lookahead)) {
+            // Footnote reference: the closing ']' must exist before the next
+            // block boundary.  has_closing_delimiter consumes the whole ']' run
+            // (rlen==1 for ']') and returns with the lexer positioned
+            // immediately AFTER the ']' run, so lookahead is the next char.
+            // At a block boundary, a ':' right after the ']' means this is a
+            // footnote DEFINITION ([^label]:), not an inline reference.
+            //
+            // The gate is (footnote || footnote_def), not just footnote: during
+            // the paragraph-interrupt probe (scan() called with
+            // paragraph_interrupt_symbols as valid_symbols) FOOTNOTE_REF_OPEN is
+            // not valid — only FOOTNOTE_DEFINITION_START is — and it is exactly
+            // that probe which must recognize `[^label]:` so the definition can
+            // interrupt a paragraph (GFM: a footnote definition interrupts a
+            // paragraph; a footnote reference does not).
+            if ((footnote || footnote_def) &&
+                has_closing_delimiter(s, lexer, ']', 1)) {
+                if (footnote_def && lexer->lookahead == ':') {
+                    lexer->result_symbol = FOOTNOTE_DEFINITION_START;
+                    return true;
+                }
+                if (footnote) {
+                    lexer->result_symbol = FOOTNOTE_REF_OPEN;
+                    return true;
+                }
+                // footnote==false here means the interrupt probe: a footnote
+                // reference (`[^label]` without ':' right after ']') does NOT
+                // interrupt a paragraph, so fall through and return false.
+            }
         }
         s->indentation = start_indentation;
         s->column = start_column;

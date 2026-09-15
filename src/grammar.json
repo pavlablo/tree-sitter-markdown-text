@@ -3762,8 +3762,17 @@
         {
           "type": "ALIAS",
           "content": {
-            "type": "SYMBOL",
-            "name": "_footnote_ref_open"
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "_footnote_ref_open"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "_footnote_definition_start_open"
+              }
+            ]
           },
           "named": true,
           "value": "footnote_label_open"
@@ -11028,6 +11037,10 @@
     {
       "type": "SYMBOL",
       "name": "_footnote_ref_open"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "_footnote_definition_start_open"
     },
     {
       "type": "SYMBOL",

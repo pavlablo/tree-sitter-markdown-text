@@ -477,7 +477,7 @@ export default grammar({
         choice($._newline, $._eof),
       ),
     ),
-    footnote_label: ($) => seq(alias($._footnote_ref_open, $.footnote_label_open), repeat1(choice(
+    footnote_label: ($) => seq(alias(choice($._footnote_ref_open, $._footnote_definition_start_open), $.footnote_label_open), repeat1(choice(
       $._word,
       $.backslash_escape,
       punctuation_without($, ['[', ']', '^']),
@@ -1519,6 +1519,7 @@ export default grammar({
     $._strikethrough_close,
     $._autolink_open,
     $._footnote_ref_open,
+    $._footnote_definition_start_open,
     $._inline_code_backtick_1_open,
     $._inline_code_backtick_1_close,
     $._inline_code_backtick_2_open,
