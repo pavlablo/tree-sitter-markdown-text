@@ -88,6 +88,26 @@ literal text instead of swallowing the document. **No cross-block issues remain.
 - **Frequency note:** e.g. `shellcheck-report.md` in the `rea-skills` corpus → 416 row-local
   `ERROR`s (2026-09-13).
 
+### P1 — full reference link with a space between the brackets — NOT FIXED
+- **Symptom:** a full reference link with whitespace between the label and the reference
+  (`[**bold** text] [lbl]`) never forms `full_reference_link`; the two bracket pairs stay
+  separate `shortcut_link`s. The adjacent form `[text][label]` works correctly.
+- **Root cause:** the grammar resolves reference links *syntactically* (reference resolution is
+  a consumer concern — see the `full_reference_link` comment). Adding a whitespace alternative
+  to `full_reference_link` perturbs GLR conflict resolution for **standalone** bracket pairs:
+  `[^]` and `[*em label*]` flip from `shortcut_link` to literal `text_span`. Three formulations
+  were tried (choice / optional-whitespace / required-whitespace); all either break standalone
+  brackets or fail to form the spaced link (required-whitespace even inverts: adjacent becomes
+  `full_reference_link`, spaced does not). A clean syntax-only rule is therefore not achievable
+  in the current GLR grammar.
+- **Status:** ❌ **Not fixed.** Tracked as a known error (issue filed).
+- **Spec note:** CommonMark §6.3 allows optional whitespace between the brackets, but the
+  result is a reference link only when the reference is *defined* — that requires
+  consumer-side resolution against `link_reference_definition`s, which this grammar does not
+  do. Deferred unless a scanner-gated token (like the n1 footnote-definition mechanism) is
+  built.
+- **Consumer:** `p1_ref_full_structured` in the `rea-skills` emphasis-regression-v2 gate.
+
 ---
 
 ## Safe-degradation (deliberate, spec-correct) — not duplicated here
