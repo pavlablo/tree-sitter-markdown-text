@@ -58,3 +58,31 @@ Trailing paragraph.
             (text_span
               (word_token)
               (terminator))))))))
+
+================================================================================
+Multi-line emphasis across blockquote continuation (j1)
+================================================================================
+> *multi
+> line emph*
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (block_quote
+      (block_quote_marker)
+      (paragraph
+        (inline
+          (emphasis
+            (emphasis_delimiter)
+            (emphasis_content
+              (word_token)
+              (block_continuation)
+              (word_token)
+              (word_token))
+            (emphasis_delimiter))
+          (text_span
+            (word_token))
+          (text_span
+            (word_token)
+            (terminator)))))))

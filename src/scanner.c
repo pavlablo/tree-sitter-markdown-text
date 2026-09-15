@@ -970,6 +970,59 @@ static bool line_starts_block(TSLexer *lexer) {
 
 
 // ---------------------------------------------------------------------------
+// Blockquote-context helpers for the closer-search loops (j1 class).
+//
+// in_block_quote: is the scanner lexically inside a blockquote?  The
+// open_blocks stack mirrors the open block nesting: BLOCK_QUOTE is pushed when
+// a block quote starts (parse_block_quote) and popped when it closes, so a
+// BLOCK_QUOTE entry anywhere on the stack means the current paragraph lives
+// inside a blockquote.  The stack is intact while inline tokens are scanned,
+// so this is a cheap, reliable test.
+//
+// skip_blockquote_continuation: at the FIRST character of a new line, if that
+// character is a blockquote marker `>` optionally followed by ONE space or tab
+// (CommonMark §5.1), consume the marker and its trailing whitespace and return
+// true; otherwise consume nothing and return false.  The caller then resumes
+// the closer search on the line's content.  A marker-only line (`>` or `> `
+// followed by a line ending) is left for line_starts_block to detect as a
+// blank line / block boundary.
+//
+// Why the skip is conditional on in_block_quote: CommonMark §5.1 lets a block
+// quote marker interrupt a paragraph (`*multi\n> line emph*` is a paragraph
+// followed by a new block quote, NOT one paragraph), so a plain paragraph must
+// keep treating a `>` line as a boundary.  Inside a blockquote, however, a
+// `>` line is a CONTINUATION of the same blockquote: the marker is blockquote
+// structure that the paragraph content never sees (the content is
+// `*multi\nline emph*`, `>` prefixes stripped), so multi-line emphasis must be
+// able to span `>`-continued lines.  Restricting the marker skip to
+// inside-a-blockquote preserves the plain-paragraph interrupt semantics while
+// fixing the blockquote continuation case.
+// ---------------------------------------------------------------------------
+// NOLINTBEGIN(readability-identifier-length)
+static bool in_block_quote(const Scanner *s) {
+    for (size_t i = 0; i < s->open_blocks.size; i++) {
+        if (s->open_blocks.items[i] == BLOCK_QUOTE) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// NOLINTNEXTLINE(readability-identifier-length)
+static bool skip_blockquote_continuation(TSLexer *lexer) {
+    if (lexer->lookahead != '>') {
+        return false;
+    }
+    lexer->advance(lexer, false);  // consume '>'
+    if (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
+        lexer->advance(lexer, false);  // consume the one optional trailing space
+    }
+    return true;
+}
+// NOLINTEND(readability-identifier-length)
+
+
+// ---------------------------------------------------------------------------
 // Universal lookahead helper: does a closing delimiter exist before the next
 // block boundary?
 //
@@ -1020,6 +1073,20 @@ static bool has_closing_delimiter(Scanner *s, TSLexer *lexer,
         // First non-newline character of a new line: check for block start
         // (skipping leading whitespace so indented block starts are seen).
         if (prev_was_newline) {
+            // Inside a blockquote, a line beginning with `>` is a blockquote
+            // CONTINUATION (CommonMark §5.1), not a paragraph interrupt: the
+            // `>` marker is blockquote structure the paragraph never sees, so
+            // skip it and keep searching on the line's content — multi-line
+            // emphasis can span `>`-continued lines.  Outside a blockquote a
+            // `>` at line start interrupts the paragraph (a new block quote),
+            // so the marker is only skipped when in_block_quote is true.  The
+            // content after the marker is still checked for block starts (a
+            // heading / nested block quote / list inside the blockquote still
+            // bounds the search), and a marker-only line still reads as a
+            // blank line boundary.
+            if (in_block_quote(s)) {
+                skip_blockquote_continuation(lexer);
+            }
             if (line_starts_block(lexer)) {
                 return false;
             }
@@ -1153,6 +1220,20 @@ static bool has_closing_delimiter_ge(Scanner *s, TSLexer *lexer,
         // First non-newline character of a new line: check for block start
         // (skipping leading whitespace so indented block starts are seen).
         if (prev_was_newline) {
+            // Inside a blockquote, a line beginning with `>` is a blockquote
+            // CONTINUATION (CommonMark §5.1), not a paragraph interrupt: the
+            // `>` marker is blockquote structure the paragraph never sees, so
+            // skip it and keep searching on the line's content — multi-line
+            // emphasis can span `>`-continued lines.  Outside a blockquote a
+            // `>` at line start interrupts the paragraph (a new block quote),
+            // so the marker is only skipped when in_block_quote is true.  The
+            // content after the marker is still checked for block starts (a
+            // heading / nested block quote / list inside the blockquote still
+            // bounds the search), and a marker-only line still reads as a
+            // blank line boundary.
+            if (in_block_quote(s)) {
+                skip_blockquote_continuation(lexer);
+            }
             if (line_starts_block(lexer)) {
                 return false;
             }
@@ -1654,10 +1735,11 @@ static bool parse_backtick(Scanner *s, TSLexer *lexer,
 // token end (the two-delimiter boundary) for the strong-open token.  The lexer
 // position is NOT restored: when the caller returns false, tree-sitter
 // backtracks the raw byte-stream position; when it returns true, the token end
-// is the already-committed mark_end.  `Scanner *s` is deliberately absent: for
-// the text-inline delimiters (`*`, `_`, `~`) the pipe-table branch of
-// has_closing_delimiter_ge applies unconditionally (s->in_pipe_table is only
-// consulted for '`' and ']').
+// is the already-committed mark_end.  `Scanner *s` is consulted only for the
+// blockquote-continuation boundary rule (in_block_quote), mirroring
+// has_closing_delimiter / has_closing_delimiter_ge; for the text-inline
+// delimiters (`*`, `_`, `~`) the pipe-table branch of has_closing_delimiter_ge
+// applies unconditionally (s->in_pipe_table is only consulted for '`' and ']').
 // ---------------------------------------------------------------------------
 // Result of run_lookahead.  Returned by value (rather than out-params)
 // so the two boolean observations are not adjacent swappable pointer
@@ -1669,7 +1751,7 @@ struct run_lookahead_result {
 };
 
 // NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity)
-static struct run_lookahead_result run_lookahead(TSLexer *lexer,
+static struct run_lookahead_result run_lookahead(Scanner *s, TSLexer *lexer,
                                                  int32_t close_char) {
     struct run_lookahead_result result = {0, false, false};
     bool prev_was_newline = false;
@@ -1690,6 +1772,15 @@ static struct run_lookahead_result run_lookahead(TSLexer *lexer,
         // First non-newline character of a new line: check for block start
         // (skipping leading whitespace so indented block starts are seen).
         if (prev_was_newline) {
+            // Blockquote-continuation rule — mirror of has_closing_delimiter /
+            // has_closing_delimiter_ge (j1 class): inside a blockquote a `>`
+            // line continues the same paragraph, so skip the marker and keep
+            // searching on the line's content; outside a blockquote a `>` at
+            // line start interrupts the paragraph (new block quote) and bounds
+            // the search.
+            if (in_block_quote(s)) {
+                skip_blockquote_continuation(lexer);
+            }
             if (line_starts_block(lexer)) {
                 return result;
             }
@@ -1901,7 +1992,7 @@ static bool parse_star(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
         !lexer->eof(lexer)) {
         // mark_end already committed at the two-star boundary, so the token
         // length is correct even though the lookahead advances further.
-        struct run_lookahead_result la = run_lookahead(lexer, '*');
+        struct run_lookahead_result la = run_lookahead(s, lexer, '*');
         // B1 containment (issue #4): a run of 3+ stars whose first closer
         // candidate is a `**` strong closer AND that also has a leftover single
         // `*` run after it (`***a** b*`) is a phantom-closer trap — the inner
@@ -2034,7 +2125,7 @@ static bool parse_underscore(Scanner *s, TSLexer *lexer,
         !lexer->eof(lexer)) {
         // mark_end already committed at the two-underscore boundary, so the
         // token length is correct even though the lookahead advances further.
-        struct run_lookahead_result la = run_lookahead(lexer, '_');
+        struct run_lookahead_result la = run_lookahead(s, lexer, '_');
         // B1 containment (issue #4), underscore analog: a run of 3+ `_` whose
         // first closer candidate is a `__` strong closer AND that also has a
         // leftover single `_` run after it (`___a__ b_`) is a phantom-closer
