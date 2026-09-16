@@ -78,11 +78,25 @@ export default grammar({
     //    (the `[^` token outranks the bare `[` at the lexer).
     //  - `[` and `]` are excluded (see `_label_bracket`), so the label always
     //    closes at the first unescaped `]`.
-    link_label: ($) => seq('[', repeat1(choice(
-      $._inline_label_element,
-      $._label_nested_brackets,
-      $._soft_line_break,
-    )), ']'),
+    // The opening `[` accepts BOTH the scanner-gated LINK_LABEL_OPEN external
+    // token (aliased back to the literal so the tree is unchanged) and the
+    // plain literal `[`.  The scanner emits LINK_LABEL_OPEN only when a closing
+    // `]` exists before the next block boundary, mirroring `[^`
+    // (FOOTNOTE_REF_OPEN): that lets a `[` which really starts a link break
+    // out of a preceding text_span (the greedy `prec.right` repeat would
+    // otherwise absorb it as a plain bracket), and it is the path a real link
+    // takes mid-span.  The literal-'[' fallback covers the cases where the
+    // scanner declined to emit the gate (task/callout/footnote-shaped `[`,
+    // empty label, unclosed label): there the grammar still forms a link at an
+    // element boundary, while an unclosed/bare `[` with no following `]`
+    // degrades to text — never an ERROR.
+    link_label: ($) => seq(
+      choice(alias($._link_label_open, '['), '['),
+      repeat1(choice(
+        $._inline_label_element,
+        $._label_nested_brackets,
+        $._soft_line_break,
+      )), ']'),
 
     // A balanced square-bracket group nested inside a link label.  Per
     // CommonMark §6.3 a link label may contain balanced brackets (e.g.
@@ -139,11 +153,13 @@ export default grammar({
     // `|` from plain cell text).  The PUBLIC node kinds are unchanged: at the
     // use sites below the pipe-table labels still alias to `link_label` /
     // `text_span` etc., so `node-types.json` public kinds do not change.
-    _pipe_table_link_label: ($) => seq('[', repeat1(choice(
-      $._pipe_table_label_element,
-      $._pipe_table_label_nested_brackets,
-      $._soft_line_break,
-    )), ']'),
+    _pipe_table_link_label: ($) => seq(
+      choice(alias($._link_label_open, '['), '['),
+      repeat1(choice(
+        $._pipe_table_label_element,
+        $._pipe_table_label_nested_brackets,
+        $._soft_line_break,
+      )), ']'),
     _pipe_table_label_nested_brackets: ($) => seq('[', repeat(choice(
       $._pipe_table_label_element,
       $._pipe_table_label_nested_brackets,
@@ -668,7 +684,13 @@ export default grammar({
       ), $.paragraph),
       choice($._newline, $._eof),
     ),
-    _callout_marker_open: ($) => seq('[', '!'),
+    // Callout marker `[!`.  The opening `[` is the scanner-gated
+    // CALLOUT_MARKER_OPEN external token (aliased back to the literal `[`):
+    // the scanner emits it only when `[!TYPE]` is a valid GFM alert shape
+    // (TYPE one of NOTE/TIP/IMPORTANT/WARNING/CAUTION), so a prose link whose
+    // label starts with `!` (e.g. `[!important](url)`) is never mistaken for
+    // an alert and keeps its literal `[`.
+    _callout_marker_open: ($) => seq(alias($._callout_marker_open_ext, '['), '!'),
     _callout_marker_close: ($) => ']',
     _callout_type: ($) => choice('NOTE', 'TIP', 'IMPORTANT', 'WARNING', 'CAUTION'),
 
@@ -1108,8 +1130,8 @@ export default grammar({
       optional($._whitespace), ')')),
     full_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(1, seq(
       $.link_label, $.link_label))),
-    collapsed_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, seq(
-      $.link_label, '[', ']')),
+    collapsed_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(1, seq(
+      $.link_label, '[', ']'))),
     shortcut_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(0, $.link_label)),
 
     // Strikethrough (GFM): ~~text~~
@@ -1365,8 +1387,8 @@ export default grammar({
     _pipe_table_full_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(1, seq(
       alias($._pipe_table_link_label, $.link_label),
       alias($._pipe_table_link_label, $.link_label)))),
-    _pipe_table_collapsed_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, seq(
-      alias($._pipe_table_link_label, $.link_label), '[', ']')),
+    _pipe_table_collapsed_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(1, seq(
+      alias($._pipe_table_link_label, $.link_label), '[', ']'))),
     _pipe_table_shortcut_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(0, alias($._pipe_table_link_label, $.link_label))),
     // Footnote reference `[^id]` inside a pipe-table cell: same external
     // `[^` token (the scanner already refuses to emit it when the `]`-closer
@@ -1525,6 +1547,8 @@ export default grammar({
     $._inline_code_backtick_2_open,
     $._inline_code_backtick_2_close,
     $._inline_code_backtick_run,
+    $._callout_marker_open_ext,
+    $._link_label_open,
   ],
   precedences: ($) => [
     [$._setext_heading1, $._block],
@@ -1542,11 +1566,14 @@ export default grammar({
     [$.footnote_definition, $.link_reference_definition, $._line],
     [$.image_block, $._line],
     [$.footnote_label, $._text_inline_no_link],
-    // Inline-content conflicts.
+    // Inline-content conflicts.  link_label keeps a literal-'[' fallback arm
+    // (see the link_label comment), so it stays ambiguous with `bracket` at
+    // element boundaries exactly as upstream; the scanner-gated
+    // LINK_LABEL_OPEN / CALLOUT_MARKER_OPEN tokens resolve the mid-span and
+    // callout cases, and these declarations cover the literal-'[' paths.
     [$.link_label, $.bracket],
     [$._pipe_table_link_label, $.bracket],
     [$.link_label, $._callout_header_paragraph, $.bracket],
-    [$.link_label, $._callout_marker_open, $.bracket],
     [$.footnote_label, $.bracket],
     [$.footnote_reference, $.bracket],
     [$.image, $.bracket],

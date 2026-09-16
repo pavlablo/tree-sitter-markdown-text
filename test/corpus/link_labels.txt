@@ -192,3 +192,87 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+================================================================================
+Inline link directly after an opening paren (was dropped: #false-negative)
+================================================================================
+foo ([x](y)) bar.
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (bracket))
+        (inline_link
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))
+        (text_span
+          (bracket))
+        (text_span
+          (word_token)
+          (terminator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Inline link directly after a word (no whitespace)
+================================================================================
+foo[x](y) baz.
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (inline_link
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))
+        (text_span
+          (word_token)
+          (terminator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Inline link directly after a closing paren
+================================================================================
+(x)[y](z) end.
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (bracket)
+          (word_token)
+          (bracket))
+        (inline_link
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))
+        (text_span
+          (word_token)
+          (terminator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))

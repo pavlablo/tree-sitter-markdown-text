@@ -130,6 +130,8 @@ typedef enum {
     INLINE_CODE_BACKTICK_2_OPEN,
     INLINE_CODE_BACKTICK_2_CLOSE,
     INLINE_CODE_BACKTICK_RUN,
+    CALLOUT_MARKER_OPEN,
+    LINK_LABEL_OPEN,
     SCANNER_TOKEN_TYPE_COUNT,
 } TokenType;
 
@@ -197,6 +199,31 @@ static bool is_footnote_label_char(int32_t ch) {
     }
     if (is_punctuation((char)ch)) {
         return ch != '[' && ch != ']' && ch != '^';
+    }
+    return true;
+}
+
+// Returns true when the text at the CURRENT lexer position is exactly one of
+// the GFM alert type keywords (NOTE, TIP, IMPORTANT, WARNING, CAUTION) and
+// consumes it (lookahead-only: `lexer->advance(lexer, false)`, so `s->column`
+// is untouched and the position rewinds when the enclosing scan() returns
+// false).  The type keywords have pairwise-distinct first letters, so a single
+// probe per first char is enough.  Mirrors `_callout_type` in grammar.js.
+static bool match_callout_type_keyword(TSLexer *lexer) {
+    const char *type;
+    switch (lexer->lookahead) {
+        case 'N': type = "NOTE"; break;
+        case 'T': type = "TIP"; break;
+        case 'I': type = "IMPORTANT"; break;
+        case 'W': type = "WARNING"; break;
+        case 'C': type = "CAUTION"; break;
+        default: return false;
+    }
+    for (size_t j = 0; type[j] != '\0'; j++) {
+        if (lexer->lookahead != (int32_t)type[j]) {
+            return false;
+        }
+        lexer->advance(lexer, false);
     }
     return true;
 }
@@ -288,7 +315,7 @@ enum {
 
 TS_MD_STATIC_ASSERT(ATX_H6_MARKER == ATX_H1_MARKER + (ATX_HEADING_LEVELS - 1),
                     atx_markers_contiguous);
-TS_MD_STATIC_ASSERT(SCANNER_TOKEN_TYPE_COUNT == INLINE_CODE_BACKTICK_RUN + 1,
+TS_MD_STATIC_ASSERT(SCANNER_TOKEN_TYPE_COUNT == LINK_LABEL_OPEN + 1,
                     token_type_count_trails_enum);
 TS_MD_STATIC_ASSERT(ANONYMOUS <= UINT8_MAX,
                     block_fits_in_one_byte);
@@ -1535,8 +1562,9 @@ static bool parse_colon(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
 // NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
 // A '[' at a token start could begin a footnote reference (`[^id]`), a footnote
 // definition (`[^label]:` — only at a block boundary, where it interrupts a
-// paragraph), a task list marker (`[x]` / `[ ]`), or a plain bracket (link
-// label / shortcut).  All are disambiguated by the character after the '['.
+// paragraph), a task list marker (`[x]` / `[ ]`), a GFM alert / callout marker
+// (`[!NOTE]`), a link label (`[text](url)`, `[text][label]`, `[text]`), or a
+// plain bracket.  All are disambiguated by the character after the '['.
 // We consume the '[' exactly once and branch on the second character; if none
 // of the scanner-emitted tokens apply we return false, letting tree-sitter
 // rewind the byte position and treat '[' as an ordinary bracket.  (We
@@ -1552,7 +1580,9 @@ static bool parse_bracket_open(Scanner *s, TSLexer *lexer,
     bool footnote_def = valid_symbols[FOOTNOTE_DEFINITION_START];
     bool task_list = valid_symbols[TASK_LIST_MARKER_CHECKED] ||
                      valid_symbols[TASK_LIST_MARKER_UNCHECKED];
-    if (!footnote && !footnote_def && !task_list) {
+    bool callout = valid_symbols[CALLOUT_MARKER_OPEN];
+    bool link = valid_symbols[LINK_LABEL_OPEN];
+    if (!footnote && !footnote_def && !task_list && !callout && !link) {
         return false;
     }
     uint16_t start_indentation = s->indentation;
@@ -1637,8 +1667,55 @@ static bool parse_bracket_open(Scanner *s, TSLexer *lexer,
         return true;
     }
 
-    // Neither a footnote reference nor a task list marker: degrade to a plain
-    // '[' bracket (runtime rewinds to the token start).
+    // Callout / GFM alert marker: '[!TYPE]' where TYPE is one of
+    // NOTE/TIP/IMPORTANT/WARNING/CAUTION.  Emitted ONLY when the exact type
+    // keyword followed by ']' is present (mirroring the footnote label-char
+    // gate): at a blockquote-content start the parser can begin either a
+    // callout or a link, and emitting the distinct token for a non-callout
+    // `[!...]` would kill the link branch.  If the shape does not match we
+    // return false so '[' re-lexes as a plain bracket; the grammar's
+    // link_label literal-'[' fallback then still forms `[!important](url)` /
+    // `[!UNKNOWN]` as links at element boundaries.
+    if (callout && lexer->lookahead == '!') {
+        // Pin the emitted token to the single '[' BEFORE consuming '!': the
+        // callout grammar re-parses `! TYPE ]` as ordinary tokens, so the gate
+        // token must not absorb them (mark_end after the type match would make
+        // the token span `[!NOTE` and strand the `]` in an ERROR).
+        mark_end(s, lexer); // token = the single '['
+        advance(s, lexer); // consume '!'
+        if (match_callout_type_keyword(lexer) && lexer->lookahead == ']') {
+            lexer->result_symbol = CALLOUT_MARKER_OPEN;
+            return true;
+        }
+        s->indentation = start_indentation;
+        s->column = start_column;
+        return false;
+    }
+
+    // Link label opener: a '[' that begins link_label / inline_link / image /
+    // full/collapsed/shortcut reference / link_reference_definition.  Gated on
+    // a closing ']' before the next block boundary AND a non-empty label (an
+    // empty label `[]` can never form a link, so emitting the token would
+    // strand it in a contained ERROR — same reason the footnote gate requires a
+    // label char).  This is the mirror of FOOTNOTE_REF_OPEN for the plain '[':
+    // it lets a real link break out of a greedy text_span (which would
+    // otherwise absorb the '[' as a bracket) while an unclosed / bare '['
+    // still re-lexes as a literal bracket and degrades to text_span content —
+    // never an ERROR.  When this branch is not reached (or fails) the grammar's
+    // link_label literal-'[' fallback still forms links at element boundaries.
+    if (link && lexer->lookahead != ']') {
+        mark_end(s, lexer); // token = the single '['
+        if (has_closing_delimiter(s, lexer, ']', 1)) {
+            lexer->result_symbol = LINK_LABEL_OPEN;
+            return true;
+        }
+        s->indentation = start_indentation;
+        s->column = start_column;
+        return false;
+    }
+
+    // Neither a footnote reference, task list marker, callout nor a link label:
+    // degrade to a plain '[' bracket (runtime rewinds to the token start).
     s->indentation = start_indentation;
     s->column = start_column;
     return false;
