@@ -165,9 +165,10 @@ Trailing paragraph.
           (word_token)
           (terminator))))))
 ================================================================================
-Nested bracket group with destination in a label keeps the outer link
+Nested bracket group with destination in a label: inner link wins
 ================================================================================
 [foo [bar](/uri)](/uri)
+
 Trailing paragraph.
 --------------------------------------------------------------------------------
 
@@ -175,18 +176,23 @@ Trailing paragraph.
   (section
     (paragraph
       (inline
+        (text_span
+          (bracket)
+          (word_token))
         (inline_link
           (link_label
             (text_span
-              (word_token))
-            (text_span
-              (word_token))
-            (text_span
-              (bracket)
-              (operator_like)
-              (word_token)
-              (bracket)))
+              (word_token)))
           (link_destination))
+        (text_span
+          (bracket)
+          (bracket)
+          (operator_like)
+          (word_token)
+          (bracket))))
+    (blank_line)
+    (paragraph
+      (inline
         (text_span
           (word_token))
         (text_span
@@ -271,6 +277,114 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+A10: leading bracket then inline link ([[A10](url)])
+================================================================================
+[[A10](url)]
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (bracket))
+        (inline_link
+          (link_label
+            (text_span
+              (identifier_like_token)))
+          (link_destination))
+        (text_span
+          (bracket))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+A10: nested link group inner link wins at end of paragraph
+================================================================================
+[foo [bar](/uri)](/uri)
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (bracket)
+          (word_token))
+        (inline_link
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))
+        (text_span
+          (bracket)
+          (bracket)
+          (operator_like)
+          (word_token)
+          (bracket))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+A10: leading bracket then image-alt style inline link ([[!alt](url)])
+================================================================================
+[[!alt](url)]
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (bracket))
+        (inline_link
+          (link_label
+            (text_span
+              (terminator)
+              (word_token)))
+          (link_destination))
+        (text_span
+          (bracket))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+A10: literal nested brackets stay inside the link label
+================================================================================
+[link with [nested] text](url)
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_link
+          (link_label
+            (text_span
+              (word_token))
+            (text_span
+              (word_token))
+            (text_span
+              (word_token))
+            (text_span
+              (word_token)))
+          (link_destination))
         (text_span
           (word_token))
         (text_span

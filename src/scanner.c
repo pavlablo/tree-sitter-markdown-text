@@ -132,6 +132,11 @@ typedef enum {
     INLINE_CODE_BACKTICK_RUN,
     CALLOUT_MARKER_OPEN,
     LINK_LABEL_OPEN,
+    // Emitted instead of LINK_LABEL_OPEN when the prospective label would
+    // contain a nested whole link (issue #72 / A10).  Distinct from LINK_LABEL_OPEN
+    // so the grammar CANNOT start a link_label from it: the outer `[` degrades
+    // to a literal bracket deterministically (see parse_bracket_open).
+    LINK_LABEL_NESTED_DENIED,
     SCANNER_TOKEN_TYPE_COUNT,
 } TokenType;
 
@@ -302,6 +307,11 @@ static const bool paragraph_interrupt_symbols[SCANNER_TOKEN_TYPE_COUNT] = {
     // opening chain with no paragraph guard), unlike link reference
     // definitions which cannot interrupt a paragraph (CommonMark §4.7).
     [FOOTNOTE_DEFINITION_START] = true,
+    // LINK_LABEL_OPEN / LINK_LABEL_NESTED_DENIED are intentionally absent:
+    // a `[` that begins a link label (or degrades to a literal bracket after a
+    // nested-link denial) is inline content and never interrupts a paragraph.
+    // Same index rule as the other inline-only tokens (emphasis, strong, ...):
+    // a designated-initializer entry omitted here defaults to false.
 };
 
 // State bitflags used with `Scanner.state`.
@@ -315,7 +325,7 @@ enum {
 
 TS_MD_STATIC_ASSERT(ATX_H6_MARKER == ATX_H1_MARKER + (ATX_HEADING_LEVELS - 1),
                     atx_markers_contiguous);
-TS_MD_STATIC_ASSERT(SCANNER_TOKEN_TYPE_COUNT == LINK_LABEL_OPEN + 1,
+TS_MD_STATIC_ASSERT(SCANNER_TOKEN_TYPE_COUNT == LINK_LABEL_NESTED_DENIED + 1,
                     token_type_count_trails_enum);
 TS_MD_STATIC_ASSERT(ANONYMOUS <= UINT8_MAX,
                     block_fits_in_one_byte);
@@ -1559,6 +1569,139 @@ static bool parse_colon(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
 // NOLINTEND(readability-identifier-length,readability-magic-numbers,readability-function-cognitive-complexity)
 
 
+// ---------------------------------------------------------------------------
+// link_label_has_valid_close: the LINK_LABEL_OPEN gate's lookahead.
+//
+// Scans forward from the CURRENT lexer position (immediately after the gating
+// '[') for the `]` that closes the label, tracking square-bracket nesting the
+// way the grammar's _label_nested_brackets rule does.  Returns true iff:
+//   1. a depth-0 `]` (the label's own close) exists before the next block
+//      boundary, AND
+//   2. the label does NOT contain a nested whole link.
+//
+// The nested-link check is the consolidated fix for the "link inside a link
+// label" class (issue #72 / A10, `[[A10](url)]`).  Per CommonMark §6.3 a link
+// may not contain another link — the innermost link wins and the outer `[ ]`
+// degrade to literal brackets.  Gating the OUTER `[` as a link label would let
+// _label_nested_brackets swallow the inner `[A10](url)` wholesale as label
+// text, so the inner inline_link never forms.  A nested whole link is
+// recognized as a `]` that closes a nested group (depth returns to >= 1)
+// immediately followed by `(`, `[` or `]` — the continuation that would turn
+// the group into a link.  When found, the decline is NOT benign: `*nested_link_denied`
+// is set so the caller can emit the distinct LINK_LABEL_NESTED_DENIED token and
+// force the outer `[` to a literal bracket (the inner `[` then scans separately
+// and forms the real link or image, `[[!alt](url)]`).  A benign decline (no
+// close, empty label, block boundary) leaves `*nested_link_denied` false and
+// the caller falls back to the grammar's literal-'[' arm.
+//
+// Block-boundary semantics are identical to has_closing_delimiter(']', 1):
+// an empty line or a following block-start line bounds the search; inside a
+// pipe table `|` bounds it and backtick spans are skipped (a `]` closer never
+// crosses a cell).  Outside a pipe table neither applies, matching the `]`
+// closer exactly, so non-nested labels gate exactly as before.
+// ---------------------------------------------------------------------------
+// NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-magic-numbers)
+static bool link_label_has_valid_close(Scanner *s, TSLexer *lexer,
+                                       bool *nested_link_denied) {
+    *nested_link_denied = false;
+    int depth = 1; // the gating '[' already opened one nesting level
+    bool prev_was_newline = false;
+
+    while (!lexer->eof(lexer)) {
+        int32_t ch = lexer->lookahead;
+
+        if (ch == '\n' || ch == '\r') {
+            if (prev_was_newline) {
+                return false; // empty line — block boundary
+            }
+            prev_was_newline = true;
+            consume_line_ending_raw(lexer);
+            continue;
+        }
+
+        // First non-newline character of a new line: check for a block start
+        // (mirrors has_closing_delimiter, including the blockquote-continuation
+        // skip so multi-line labels inside a blockquote can close on a
+        // `>`-continued line).
+        if (prev_was_newline) {
+            if (in_block_quote(s)) {
+                skip_blockquote_continuation(lexer);
+            }
+            if (line_starts_block(lexer)) {
+                return false;
+            }
+            prev_was_newline = false;
+            ch = lexer->lookahead;
+        }
+
+        // Pipe-table cell boundary (mirrors has_closing_delimiter for the `]`
+        // closer): backslash escapes and backtick spans are consumed as units
+        // and `|` bounds the search, but only inside an actual pipe table.
+        if (s->in_pipe_table) {
+            if (ch == '\\') {
+                lexer->advance(lexer, false);
+                int32_t escaped = lexer->lookahead;
+                if (!lexer->eof(lexer) && escaped != '\n' && escaped != '\r') {
+                    lexer->advance(lexer, false);
+                }
+                continue;
+            }
+            if (ch == '`') {
+                lexer->advance(lexer, false);
+                while (!lexer->eof(lexer) &&
+                       lexer->lookahead != '`' &&
+                       lexer->lookahead != '\n' && lexer->lookahead != '\r') {
+                    lexer->advance(lexer, false);
+                }
+                if (!lexer->eof(lexer) && lexer->lookahead == '`') {
+                    lexer->advance(lexer, false);
+                }
+                continue;
+            }
+            if (ch == '|') {
+                return false;
+            }
+        }
+
+        if (ch == '[') {
+            depth++;
+        } else if (ch == ']') {
+            // Consume the whole run, matching has_closing_delimiter's
+            // exact-run semantics (a run of 2+ `]` is not a single closer).
+            uint32_t rlen = 0;
+            do {
+                rlen++;
+                lexer->advance(lexer, false);
+            } while (!lexer->eof(lexer) && lexer->lookahead == ']');
+            if (rlen != 1) {
+                continue;
+            }
+            depth--;
+            if (depth == 0) {
+                // The label's own close: the gating '[' starts a valid link.
+                return true;
+            }
+            // Closed a nested group inside the label.  If it is immediately
+            // followed by a link continuation the group would be a nested whole
+            // link (CommonMark §6.3) — refuse the gate, and distinguish this
+            // decline from a benign one so the caller can emit the distinct
+            // LINK_LABEL_NESTED_DENIED token.
+            if (!lexer->eof(lexer) &&
+                (lexer->lookahead == '(' || lexer->lookahead == '[' ||
+                 lexer->lookahead == ']')) {
+                *nested_link_denied = true;
+                return false;
+            }
+            continue;
+        }
+
+        lexer->advance(lexer, false);
+    }
+    return false;
+}
+// NOLINTEND(readability-identifier-length,readability-function-cognitive-complexity,readability-magic-numbers)
+
+
 // NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
 // A '[' at a token start could begin a footnote reference (`[^id]`), a footnote
 // definition (`[^label]:` — only at a block boundary, where it interrupts a
@@ -1582,7 +1725,9 @@ static bool parse_bracket_open(Scanner *s, TSLexer *lexer,
                      valid_symbols[TASK_LIST_MARKER_UNCHECKED];
     bool callout = valid_symbols[CALLOUT_MARKER_OPEN];
     bool link = valid_symbols[LINK_LABEL_OPEN];
-    if (!footnote && !footnote_def && !task_list && !callout && !link) {
+    bool link_nested_denied = valid_symbols[LINK_LABEL_NESTED_DENIED];
+    if (!footnote && !footnote_def && !task_list && !callout && !link &&
+        !link_nested_denied) {
         return false;
     }
     uint16_t start_indentation = s->indentation;
@@ -1697,16 +1842,41 @@ static bool parse_bracket_open(Scanner *s, TSLexer *lexer,
     // a closing ']' before the next block boundary AND a non-empty label (an
     // empty label `[]` can never form a link, so emitting the token would
     // strand it in a contained ERROR — same reason the footnote gate requires a
-    // label char).  This is the mirror of FOOTNOTE_REF_OPEN for the plain '[':
-    // it lets a real link break out of a greedy text_span (which would
-    // otherwise absorb the '[' as a bracket) while an unclosed / bare '['
-    // still re-lexes as a literal bracket and degrades to text_span content —
-    // never an ERROR.  When this branch is not reached (or fails) the grammar's
-    // link_label literal-'[' fallback still forms links at element boundaries.
-    if (link && lexer->lookahead != ']') {
+    // label char).  link_label_has_valid_close additionally refuses the token
+    // when the prospective label would contain a nested whole link (CommonMark
+    // §6.3: a link cannot contain a link — the innermost wins), so `[[A10](u)]`
+    // parses as `[` + inline_link + `]` instead of one shortcut_link whose
+    // label swallowed the inner link.  This is the mirror of FOOTNOTE_REF_OPEN
+    // for the plain '[': it lets a real link break out of a greedy text_span
+    // (which would otherwise absorb the '[' as a bracket) while an unclosed /
+    // bare '[' still re-lexes as a literal bracket and degrades to text_span
+    // content — never an ERROR.  When this branch is not reached (or fails) the
+    // grammar's link_label literal-'[' fallback still forms links at element
+    // boundaries.
+    //
+    // The nested-link decline is NOT left to that fallback: the fallback lets
+    // link_label form from the literal '[' and _label_nested_brackets would
+    // swallow the inner link as label text, so the outer link wins at EOF and
+    // loses after a blank line — the #72 / A10 non-determinism.  Instead the
+    // distinct LINK_LABEL_NESTED_DENIED token is emitted: the grammar cannot
+    // start a link_label from it (only LINK_LABEL_OPEN / literal '[' start a
+    // label), so the outer '[' degrades to a literal bracket deterministically,
+    // independent of trailing content.  Benign declines still return false and
+    // keep the literal-'[' fallback (task/callout/footnote/empty/unclosed).
+    if ((link || link_nested_denied) && lexer->lookahead != ']') {
         mark_end(s, lexer); // token = the single '['
-        if (has_closing_delimiter(s, lexer, ']', 1)) {
-            lexer->result_symbol = LINK_LABEL_OPEN;
+        bool nested_link_denied = false;
+        if (link_label_has_valid_close(s, lexer, &nested_link_denied)) {
+            if (link) {
+                lexer->result_symbol = LINK_LABEL_OPEN;
+                return true;
+            }
+            // A valid close but LINK_LABEL_OPEN is not valid at this position
+            // (bracket-only context): return false so '[' re-lexes as the
+            // literal bracket — the parser cannot start a link_label here
+            // anyway, so no fallback bug is possible.
+        } else if (nested_link_denied && link_nested_denied) {
+            lexer->result_symbol = LINK_LABEL_NESTED_DENIED;
             return true;
         }
         s->indentation = start_indentation;
@@ -2697,28 +2867,25 @@ static bool parse_minus(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
 
 
 // NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
-static bool parse_autolink(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
-    if (!valid_symbols[AUTOLINK_OPEN] || lexer->lookahead != '<') {
-        return false;
-    }
-    uint16_t start_indentation = s->indentation;
-    uint8_t start_column = s->column;
-    advance(s, lexer); // consume '<'
-    // GATE token: the emitted token is ONLY the opening `<`.  mark_end right
-    // after the `<` so the parser re-parses the content with ordinary grammar
-    // rules (named `uri` / `email` children).  The scan below validates ahead
-    // that a well-formed URI/email is closed by `>` on the same line; if so we
-    // return with the token already bounded to just the `<`.
-    mark_end(s, lexer); // token = the single '<' gate
-
+// NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
+// Validate that the content starting at the current lexer position forms a
+// well-formed URI autolink (<scheme:rest>) or email autolink (<local@domain>)
+// closed by '>' on the same line.  scheme_len / email_local_len seed the
+// counters with any prefix the caller has already consumed (0 when starting
+// right after '<', or the length of an alpha prefix already read).  On success
+// the lexer is left just past the closing '>'; on failure the caller is
+// responsible for restoring scanner state.  Shared by parse_autolink() (inline
+// `<`) and parse_html_block() (paragraph-start `<`, which cannot rewind the
+// lexer within one scan() call).
+static bool scan_autolink_content(Scanner *s, TSLexer *lexer,
+                                  uint32_t scheme_len,
+                                  uint32_t email_local_len) {
     // URI candidate: [A-Za-z][A-Za-z0-9+.\-]{1,31} ':' [^<> \t\n\r]+
     bool uri_ok = true;
-    uint32_t uri_scheme_len = 0;
     bool uri_seen_colon = false;
     bool uri_has_rest = false;
     // Email candidate: [A-Za-z0-9._%+\-]+ '@' [A-Za-z0-9.\-]+ (\.[A-Za-z0-9\-]+)+
     bool email_ok = true;
-    uint32_t email_local_len = 0;
     bool email_seen_at = false;
     uint32_t email_labels = 0;
     bool email_domain_has_char = false;
@@ -2732,20 +2899,20 @@ static bool parse_autolink(Scanner *s, TSLexer *lexer, const bool *valid_symbols
 
         // URI scheme tracking.
         if (!uri_seen_colon && uri_ok) {
-            if (uri_scheme_len == 0) {
+            if (scheme_len == 0) {
                 if (is_ascii_alpha(c)) {
-                    uri_scheme_len = 1;
+                    scheme_len = 1;
                 } else {
                     uri_ok = false;
                 }
             } else if (c == ':') {
-                if (uri_scheme_len >= 1 && uri_scheme_len <= 32) {
+                if (scheme_len >= 1 && scheme_len <= 32) {
                     uri_seen_colon = true;
                 } else {
                     uri_ok = false;
                 }
             } else if (is_ascii_alnum(c) || c == '+' || c == '.' || c == '-') {
-                uri_scheme_len++;
+                scheme_len++;
             } else {
                 uri_ok = false;
             }
@@ -2792,11 +2959,9 @@ static bool parse_autolink(Scanner *s, TSLexer *lexer, const bool *valid_symbols
 
     // The run must be terminated by `>`.
     if (lexer->lookahead != '>') {
-        s->indentation = start_indentation;
-        s->column = start_column;
         return false;
     }
-    advance(s, lexer); // consume '>' (scan-ahead only; token end stays at '<')
+    advance(s, lexer); // consume '>' (scan-ahead only)
 
     bool matched = false;
     if (uri_ok && uri_seen_colon && uri_has_rest) {
@@ -2811,8 +2976,24 @@ static bool parse_autolink(Scanner *s, TSLexer *lexer, const bool *valid_symbols
             matched = true;
         }
     }
+    return matched;
+}
+// NOLINTEND(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
 
-    if (matched) {
+static bool parse_autolink(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
+    if (!valid_symbols[AUTOLINK_OPEN] || lexer->lookahead != '<') {
+        return false;
+    }
+    uint16_t start_indentation = s->indentation;
+    uint8_t start_column = s->column;
+    advance(s, lexer); // consume '<'
+    // GATE token: the emitted token is ONLY the opening `<`.  mark_end right
+    // after the `<` so the parser re-parses the content with ordinary grammar
+    // rules (named `uri` / `email` children).  scan_autolink_content validates
+    // ahead that a well-formed URI/email is closed by `>` on the same line; if
+    // so we return with the token already bounded to just the `<`.
+    mark_end(s, lexer); // token = the single '<' gate
+    if (scan_autolink_content(s, lexer, 0, 0)) {
         lexer->result_symbol = AUTOLINK_OPEN;
         return true;
     }
@@ -3422,13 +3603,11 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
                 // A < could be an autolink (inline) or the beginning of a
                 // html block.  parse_autolink() validates the whole `<...>`
                 // span and requires a closing `>`, emitting only the opening
-                // `<` (the AUTOLINK_OPEN gate); it only runs when the
-                // AUTOLINK_OPEN token is expected AND no block-HTML token is
-                // valid (a block HTML tag takes precedence at line start).
-                // Trying autolink first does NOT work: on a non-match it
-                // consumes the `<` + content before returning false, and the
-                // scanner cannot rewind within one call, so the html block
-                // would start at the wrong position.
+                // `<` (the AUTOLINK_OPEN gate); it runs when the AUTOLINK_OPEN
+                // token is expected AND no block-HTML token is valid.  At the
+                // first token of a paragraph both are valid; a block HTML tag
+                // takes precedence there, and parse_html_block() itself
+                // recognizes paragraph-start autolinks (CommonMark §6.5).
                 if (valid_symbols[AUTOLINK_OPEN] &&
                     !(valid_symbols[HTML_BLOCK_1_START] ||
                       valid_symbols[HTML_BLOCK_2_START] ||

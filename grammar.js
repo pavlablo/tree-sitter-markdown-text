@@ -80,16 +80,31 @@ export default grammar({
     //    closes at the first unescaped `]`.
     // The opening `[` accepts BOTH the scanner-gated LINK_LABEL_OPEN external
     // token (aliased back to the literal so the tree is unchanged) and the
-    // plain literal `[`.  The scanner emits LINK_LABEL_OPEN only when a closing
-    // `]` exists before the next block boundary, mirroring `[^`
+    // plain literal `[`.  The scanner emits LINK_LABEL_OPEN only when a
+    // closing `]` exists before the next block boundary AND the label is
+    // non-empty AND the label does not contain a nested whole link
+    // (link_label_has_valid_close in src/scanner.c), mirroring `[^`
     // (FOOTNOTE_REF_OPEN): that lets a `[` which really starts a link break
     // out of a preceding text_span (the greedy `prec.right` repeat would
     // otherwise absorb it as a plain bracket), and it is the path a real link
-    // takes mid-span.  The literal-'[' fallback covers the cases where the
-    // scanner declined to emit the gate (task/callout/footnote-shaped `[`,
-    // empty label, unclosed label): there the grammar still forms a link at an
-    // element boundary, while an unclosed/bare `[` with no following `]`
-    // degrades to text — never an ERROR.
+    // takes mid-span.  The literal-'[' fallback covers the benign scanner
+    // declines — task/callout/footnote-shaped `[` (where a more specific
+    // token branch short-circuits the link gate), empty and unclosed labels —
+    // where the grammar still forms a link at an element boundary.
+    //
+    // "Link inside a link label" (CommonMark §6.3, `[foo [bar](/uri)](/uri)`)
+    // is handled by the combination of the scanner gate and the negative
+    // precedence on _label_nested_brackets, NOT by removing the fallback: the
+    // scanner refuses LINK_LABEL_OPEN for an outer `[` whose label would
+    // contain a nested whole link, and _label_nested_brackets (prec -1) loses
+    // to the inner link productions, so the innermost link wins and the outer
+    // `[`/`]` degrade to literal brackets.  The literal-'[' fallback stays
+    // for the BENIGN scanner declines, but a nested-link denial is signalled
+    // with the distinct LINK_LABEL_NESTED_DENIED token (routed into `bracket`,
+    // excluded from this opener): the outer `[` then degrades to a literal
+    // bracket deterministically — the same AST at EOF and after a blank line,
+    // because the fallback (which could re-form a label and swallow the inner
+    // link at EOF) is unreachable from that token.
     link_label: ($) => seq(
       choice(alias($._link_label_open, '['), '['),
       repeat1(choice(
@@ -104,11 +119,26 @@ export default grammar({
     // not a nested link.  Recursive so arbitrarily deep nesting is accepted;
     // the label itself closes only at the bracket that balances the opening
     // `[`, not at the first `]` that closes an inner group.
-    _label_nested_brackets: ($) => seq('[', repeat(choice(
+    //
+    // The NEGATIVE precedence is the consolidated fix for "a link inside a
+    // link label" (issue #72 / A10, `[[A10](url)]`).  A nested `[...]` that
+    // would swallow a whole inner link (`[bar](/uri)` in `[foo [bar](/uri)]`)
+    // must lose to the inner link: CommonMark §6.3 — a link cannot contain
+    // another link, the innermost wins.  The scanner's LINK_LABEL_OPEN gate
+    // already refuses the OUTER `[` when its label would contain a nested
+    // link, but the grammar's literal-'[' fallback in link_label would still
+    // let _label_nested_brackets swallow the inner link as label text (and the
+    // outcome then depends on unrelated trailing content).  Giving this rule a
+    // lower precedence than every link production (default 0, dynamic 10)
+    // makes the parser prefer the inner link interpretation whenever one
+    // exists; when no link interpretation exists (a plain `[nested]` group with
+    // no following `(`, `[` or `]`), _label_nested_brackets remains the only
+    // way to consume the group and still matches.
+    _label_nested_brackets: ($) => prec(-1, seq('[', repeat(choice(
       $._inline_label_element,
       $._label_nested_brackets,
       $._soft_line_break,
-    )), ']'),
+    )), ']')),
 
     // One inline element allowed inside a link label.
     _inline_label_element: ($) => choice(
@@ -160,11 +190,11 @@ export default grammar({
         $._pipe_table_label_nested_brackets,
         $._soft_line_break,
       )), ']'),
-    _pipe_table_label_nested_brackets: ($) => seq('[', repeat(choice(
+    _pipe_table_label_nested_brackets: ($) => prec(-1, seq('[', repeat(choice(
       $._pipe_table_label_element,
       $._pipe_table_label_nested_brackets,
       $._soft_line_break,
-    )), ']'),
+    )), ']')),
     _pipe_table_label_element: ($) => choice(
       $._whitespace,
       $.inline_code,
@@ -931,7 +961,20 @@ export default grammar({
     separator: ($) => choice(',', ';', ':'),
 
     // Paired brackets (individual chars; pairing is structural in link/image/html rules).
-    bracket: ($) => choice('(', ')', '[', ']', '{', '}', '<', '>'),
+    // `bracket` also accepts the scanner's LINK_LABEL_NESTED_DENIED external,
+    // aliased back to the literal `[`.  That token is emitted when a '[' would
+    // otherwise open a link label whose content is a nested whole link (issue
+    // #72 / A10, `[foo [bar](/uri)](/uri)`); a link cannot contain another link
+    // (CommonMark §6.3), so the innermost link wins and the outer '[' must
+    // degrade to a literal bracket DETERMINISTICALLY.  Routing the token into
+    // `bracket` makes it a literal bracket at every inline site while keeping
+    // it out of `link_label`'s opener (which accepts only LINK_LABEL_OPEN and
+    // the literal '['), so the outer '[' can never re-form a label and swallow
+    // the inner link — EOF and blank-line parses agree.
+    bracket: ($) => choice(
+      alias($._link_label_nested_denied, '['),
+      '(', ')', '[', ']', '{', '}', '<', '>',
+    ),
 
     // Operator-like punctuation. Covers spec-listed operators plus the
     // remaining punctuation chars so every punctuation lexeme has a class.
@@ -1549,6 +1592,7 @@ export default grammar({
     $._inline_code_backtick_run,
     $._callout_marker_open_ext,
     $._link_label_open,
+    $._link_label_nested_denied,
   ],
   precedences: ($) => [
     [$._setext_heading1, $._block],
