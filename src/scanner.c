@@ -137,6 +137,13 @@ typedef enum {
     // so the grammar CANNOT start a link_label from it: the outer `[` degrades
     // to a literal bracket deterministically (see parse_bracket_open).
     LINK_LABEL_NESTED_DENIED,
+    // Emitted instead of the literal `!` terminator when the `!` starts an
+    // inline image (`![alt](url)`): the scanner gate mirrors LINK_LABEL_OPEN for
+    // the `!` char, letting a real image break out of a greedy text_span (which
+    // would otherwise absorb the `!` as a terminator and degrade `[alt](url)`
+    // to a plain inline_link).  A bare `!` without a valid label re-lexes as a
+    // literal terminator — never an ERROR.  See parse_image_marker.
+    IMAGE_MARKER,
     SCANNER_TOKEN_TYPE_COUNT,
 } TokenType;
 
@@ -307,9 +314,10 @@ static const bool paragraph_interrupt_symbols[SCANNER_TOKEN_TYPE_COUNT] = {
     // opening chain with no paragraph guard), unlike link reference
     // definitions which cannot interrupt a paragraph (CommonMark §4.7).
     [FOOTNOTE_DEFINITION_START] = true,
-    // LINK_LABEL_OPEN / LINK_LABEL_NESTED_DENIED are intentionally absent:
-    // a `[` that begins a link label (or degrades to a literal bracket after a
-    // nested-link denial) is inline content and never interrupts a paragraph.
+    // LINK_LABEL_OPEN / LINK_LABEL_NESTED_DENIED / IMAGE_MARKER are
+    // intentionally absent: a `[` that begins a link label (or degrades to a
+    // literal bracket after a nested-link denial) and a `!` that begins an
+    // image marker are inline content and never interrupt a paragraph.
     // Same index rule as the other inline-only tokens (emphasis, strong, ...):
     // a designated-initializer entry omitted here defaults to false.
 };
@@ -325,7 +333,7 @@ enum {
 
 TS_MD_STATIC_ASSERT(ATX_H6_MARKER == ATX_H1_MARKER + (ATX_HEADING_LEVELS - 1),
                     atx_markers_contiguous);
-TS_MD_STATIC_ASSERT(SCANNER_TOKEN_TYPE_COUNT == LINK_LABEL_NESTED_DENIED + 1,
+TS_MD_STATIC_ASSERT(SCANNER_TOKEN_TYPE_COUNT == IMAGE_MARKER + 1,
                     token_type_count_trails_enum);
 TS_MD_STATIC_ASSERT(ANONYMOUS <= UINT8_MAX,
                     block_fits_in_one_byte);
@@ -1886,6 +1894,56 @@ static bool parse_bracket_open(Scanner *s, TSLexer *lexer,
 
     // Neither a footnote reference, task list marker, callout nor a link label:
     // degrade to a plain '[' bracket (runtime rewinds to the token start).
+    s->indentation = start_indentation;
+    s->column = start_column;
+    return false;
+}
+// NOLINTEND(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
+
+
+// NOLINTBEGIN(readability-identifier-length,readability-function-cognitive-complexity,readability-implicit-bool-conversion,readability-avoid-nested-conditional-operator,readability-else-after-return,readability-redundant-parentheses,readability-magic-numbers,readability-braces-around-statements,bugprone-switch-missing-default-case)
+// An image marker `!` at a token start could begin an inline image
+// (`![alt](url)`) or be a bare sentence terminator (`Hello!`).  The scanner
+// resolves this the same way LINK_LABEL_OPEN resolves a bare '[': an
+// IMAGE_MARKER external token is emitted ONLY when a valid link label (a
+// closing ']' before the next block boundary) follows the '!' — mirroring the
+// image rule's `!` + link_label shape.  This is the exact mirror of the
+// LINK_LABEL_OPEN mechanism (parse_bracket_open above) for the '!' char: it
+// lets a real image break out of a greedy text_span (which would otherwise
+// absorb the '!' as a terminator and degrade `[alt](url)` to a plain
+// inline_link) while a lone/bare '!' still re-lexes as a literal terminator
+// and stays text_span content — never an ERROR.
+//
+// The gate uses link_label_has_valid_close (the LINK_LABEL_OPEN gate's
+// lookahead), which already handles the pipe-table `|` bounding, backtick-span
+// skipping, block boundaries and nested-link denial — so the pipe-table image
+// variant (`| a![b](c) |`) is covered by the same gate.
+static bool parse_image_marker(Scanner *s, TSLexer *lexer,
+                               const bool *valid_symbols) {
+    if (!valid_symbols[IMAGE_MARKER] || lexer->lookahead != '!') {
+        return false;
+    }
+    uint16_t start_indentation = s->indentation;
+    uint8_t start_column = s->column;
+    advance(s, lexer); // consume '!'
+    // Pin the emitted token to the single '!' BEFORE consuming '[': the image
+    // grammar re-parses `[alt](url)` as ordinary link_label / destination
+    // tokens, so the gate token must not absorb them (mark_end after the label
+    // scan would make the token span `![alt` and strand the `]` in an ERROR).
+    mark_end(s, lexer); // token = the single '!'
+    if (lexer->lookahead != '[') {
+        s->indentation = start_indentation;
+        s->column = start_column;
+        return false;
+    }
+    advance(s, lexer); // consume '['
+    bool nested_link_denied = false;
+    if (link_label_has_valid_close(s, lexer, &nested_link_denied)) {
+        lexer->result_symbol = IMAGE_MARKER;
+        return true;
+    }
+    // No valid label follows: restore so '!' re-lexes as a literal terminator
+    // (the grammar's terminator/text_span literal-'!' arm).  Never an ERROR.
     s->indentation = start_indentation;
     s->column = start_column;
     return false;
@@ -3593,6 +3651,13 @@ static bool scan(Scanner *s, TSLexer *lexer, const bool *valid_symbols) {
                 return parse_bracket_open(s, lexer, valid_symbols);
             case '$':
                 return parse_math_inline_delimiter(s, lexer, valid_symbols);
+            case '!':
+                // A '!' could be a bare sentence terminator (`Hello!`) or the
+                // start of an inline image (`![alt](url)`).
+                // parse_image_marker() disambiguates by the character after
+                // the '!': it emits IMAGE_MARKER only when a valid link label
+                // follows, otherwise the '!' degrades to a literal terminator.
+                return parse_image_marker(s, lexer, valid_symbols);
             case ':':
                 // A colon could mark a directive block delimiter (`:::`).
                 // parse_colon() emits DIRECTIVE_BLOCK_OPEN/CLOSE_DELIMITER for

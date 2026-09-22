@@ -1962,3 +1962,147 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+================================================================================
+Image after plain text forms an image node (issue #9)
+================================================================================
+x![alt](url)
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Image inside brackets forms bracket + image + bracket (issue #9)
+================================================================================
+[![alt](url)]
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (bracket))
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))
+        (text_span
+          (bracket))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Image after word then text (issue #9)
+================================================================================
+word![x](y) z
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))
+        (text_span
+          (word_token))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Two images after text (issue #9)
+================================================================================
+x![a](b)![c](d)
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Lone exclamation mark stays a terminator, not an image (issue #9)
+================================================================================
+Hello!
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token)
+          (terminator))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))

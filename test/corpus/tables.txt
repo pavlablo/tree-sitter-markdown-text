@@ -445,3 +445,44 @@ Trailing paragraph.
             (word_token)
             (word_token)
             (terminator)))))))
+
+================================================================================
+Image inside a pipe table cell after text (issue #9)
+================================================================================
+| a | b |
+|---|---|
+| a![b](c) | x |
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (pipe_table
+      (pipe_table_header
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_delimiter_row
+        (pipe_table_delimiter_cell)
+        (pipe_table_delimiter_cell))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (word_token)
+            (image
+              (link_label
+                (text_span
+                  (word_token)))
+              (link_destination))))
+        (pipe_table_cell
+          (inline
+            (word_token))))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (word_token)
+            (word_token)
+            (terminator)))))))

@@ -615,7 +615,7 @@ export default grammar({
     // paragraph falls back to ordinary `paragraph` with inline content.
     image_block: ($) => prec.dynamic(PRECEDENCE_LEVEL_IMAGE_BLOCK, seq(
       optional($._whitespace),
-      '!',
+      alias($._image_marker, '!'),
       $.link_label,
       '(',
       optional($._whitespace),
@@ -1137,7 +1137,7 @@ export default grammar({
     // than the shortcut fallback so that `![alt][label]` collapses into ONE
     // image node instead of a shortcut image followed by a separate link.
     image: ($) => prec.dynamic(PRECEDENCE_LEVEL_IMAGE, prec.right(seq(
-      '!',
+      alias($._image_marker, '!'),
       $.link_label,
       optional(choice(
         // inline destination
@@ -1412,7 +1412,7 @@ export default grammar({
     // label / destination / title content from the `|`-excluding sets above so
     // an unescaped `|` splits the cell instead of being absorbed (GFM §4.10).
     _pipe_table_image: ($) => prec.dynamic(PRECEDENCE_LEVEL_IMAGE, prec.right(seq(
-      '!',
+      alias($._image_marker, '!'),
       alias($._pipe_table_link_label, $.link_label),
       optional(choice(
         seq('(', optional($._whitespace), optional(alias($._pipe_table_link_destination, $.link_destination)),
@@ -1593,6 +1593,7 @@ export default grammar({
     $._callout_marker_open_ext,
     $._link_label_open,
     $._link_label_nested_denied,
+    $._image_marker,
   ],
   precedences: ($) => [
     [$._setext_heading1, $._block],
