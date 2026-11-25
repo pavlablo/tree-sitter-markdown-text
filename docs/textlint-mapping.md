@@ -25,7 +25,7 @@ This grammar's node types are close to — but not byte-identical with — the t
 | `FootnoteDefinition` | `footnoteDefinition` | `footnote_definition` | With `footnote_label` child and an `inline` content node. |
 | *(no direct counterpart)* | *(no direct counterpart)* | `math_block` | Pandoc / GitLab / KaTeX display math `$$ … $$`. |
 | *(no direct counterpart)* | *(no direct counterpart)* | `directive_block` | Generic container directives `:::name … :::` (remark-directive / MyST / Pandoc fenced divs). |
-| `Image` when block-level | `image` at root scope | `image_block` | A paragraph whose entire content is a single image `![alt](dest)` is surfaced as `image_block`. Inline images embedded in prose become `image` children of the `inline` wrapper. |
+| `Image` when block-level | `image` at root scope | `paragraph` > `inline` > `image` | A paragraph whose entire content is a single image `![alt](dest)` is parsed as a normal `paragraph` with an inline `image` child — there is no block-level image node (deviation from mehen §3.1). Inline images embedded in prose are likewise `image` children of the `inline` wrapper. |
 
 ## Inline-level nodes (children of the `inline` wrapper)
 
@@ -39,7 +39,7 @@ This grammar's node types are close to — but not byte-identical with — the t
 | `Code` (`inlineCode`) | `inlineCode` | `inline_code` | Single or double backtick runs. |
 | `Link` | `link` | `inline_link` / `full_reference_link` / `collapsed_reference_link` / `shortcut_link` | Inline, full-reference, collapsed-reference, and shortcut-reference forms, exposed as four distinct node kinds. |
 | `LinkReference` | `linkReference` | `full_reference_link` / `collapsed_reference_link` / `shortcut_link` | Reference forms are distinct kinds; whether a label resolves against a `link_reference_definition` is decided by consumers, not the grammar. |
-| `Image` | `image` | `image` | Inline images inside prose (distinct from `image_block`). |
+| `Image` | `image` | `image` | Inline images inside prose. A standalone image paragraph is also `paragraph` > `inline` > `image`. |
 | `ImageReference` | `imageReference` | `image` | |
 | *(autolink)* | *(autolink)* | `autolink` | `<…>` with `uri` or `email` child. |
 | `Html` | `html` | `html_inline` | Raw HTML open/close/self-closing tags, comments, CDATA, declarations, processing instructions. |

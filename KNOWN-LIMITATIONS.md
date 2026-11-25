@@ -77,6 +77,17 @@ literal text instead of swallowing the document. **No cross-block issues remain.
 - **Frequency note:** the ~10 of 1395 `rea-skills` files (2026-09-13) that hit this class now
   parse correctly.
 
+### D4 — standalone image paragraph shape inconsistency (#10, #12) — FIXED
+- **Date:** 2026-11-25 (branch `fix/emphasis-block-boundary`).
+- **Symptom (was):** a standalone `![i](m.png)` line mid-file became a block-level `image_block`
+  while the same line at EOF (or with a title) became `paragraph > inline > image`;
+  `![i](m.png) tail` produced an `ERROR` on the space.
+- **Fix:** removed the `image_block` block rule (and its precedence constant and GLR conflicts).
+  Standalone images now parse uniformly as `paragraph > inline > image`, including at EOF and
+  with a title; `![i](m.png) tail` no longer errors.
+- **Status:** ✅ **Fixed.** Closes [issue #10](https://github.com/pavlablo/tree-sitter-markdown-text/issues/10)
+  and [issue #12](https://github.com/pavlablo/tree-sitter-markdown-text/issues/12).
+
 ## Remaining
 
 ### Wide / machine-generated pipe tables — NOT FIXED

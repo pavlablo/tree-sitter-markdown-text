@@ -15,7 +15,6 @@
 //  - Pandoc display math ($$), Pandoc inline math ($)
 //  - Generic container directives (:::)
 //  - Footnote definitions and references
-//  - Image blocks (paragraph with a single image)
 //  - MDX JSX blocks and inline elements (shallow)
 //
 // Inline content emitted under paragraph/heading/footnote bodies is
@@ -46,7 +45,6 @@ const PRECEDENCE_LEVEL_FOOTNOTE = 11;
 const PRECEDENCE_LEVEL_IMAGE = 11;
 const PRECEDENCE_LEVEL_MATH_BLOCK = 12;
 const PRECEDENCE_LEVEL_DIRECTIVE_BLOCK = 12;
-const PRECEDENCE_LEVEL_IMAGE_BLOCK = 12;
 
 export default grammar({
   name: 'markdown',
@@ -312,7 +310,6 @@ export default grammar({
       $.footnote_definition,
       $.math_block,
       $.directive_block,
-      $.image_block,
       $.pipe_table,
     ),
     section: ($) => choice($._section1, $._section2, $._section3, $._section4, $._section5, $._section6),
@@ -607,24 +604,6 @@ export default grammar({
       punctuation_without($, [':']),
     ))),
     directive_block_content: ($) => prec.right(repeat1(choice($._line, $._newline))),
-
-    // A block-level image (paragraph consisting of a single image).
-    // Syntax: `![alt](destination)` on its own line.
-    // Kept intentionally minimal: title strings are omitted to keep the rule
-    // unambiguous with `link_reference_definition`. If a title is present the
-    // paragraph falls back to ordinary `paragraph` with inline content.
-    image_block: ($) => prec.dynamic(PRECEDENCE_LEVEL_IMAGE_BLOCK, seq(
-      optional($._whitespace),
-      alias($._image_marker, '!'),
-      $.link_label,
-      '(',
-      optional($._whitespace),
-      optional($.link_destination),
-      optional($._whitespace),
-      ')',
-      optional($._whitespace),
-      choice($._newline, $._eof),
-    )),
 
     // MDX JSX block. Shallow block-level recognizer: a line that begins
     // (after optional whitespace) with an MDX-style JSX tag (<Name ...>,
@@ -1609,7 +1588,6 @@ export default grammar({
     [$._footnote_definition_continuation],
     [$.footnote_definition, $._line],
     [$.footnote_definition, $.link_reference_definition, $._line],
-    [$.image_block, $._line],
     [$.footnote_label, $._text_inline_no_link],
     // Inline-content conflicts.  link_label keeps a literal-'[' fallback arm
     // (see the link_label comment), so it stays ambiguous with `bracket` at
@@ -1631,14 +1609,11 @@ export default grammar({
     [$.strong, $.operator_like],
     [$.emphasis, $.operator_like],
     [$.strikethrough, $.operator_like],
-    [$.image_block, $.terminator, $.image],
     [$.footnote_definition, $.link_reference_definition, $._inline_element],
-    [$.image_block, $._inline_element],
     [$.terminator, $.image],
     [$.terminator, $._pipe_table_image],
     [$.footnote_label, $.footnote_reference],
     [$.footnote_definition, $._inline_element],
-    [$.image_block, $.image],
     [$.link_destination, $.link_title],
     [$._pipe_table_link_destination, $._pipe_table_link_title],
     [$._link_destination_parenthesis, $.link_title],
