@@ -12,6 +12,10 @@
     },
     "cSpell.words": [
       "prec"
-    ]
+    ],
+    "telemetry.telemetryLevel": "off",
+    "kilo-code.new.browserAutomation.enabled": true,
+    "chat.disableAIFeatures": true,
+    "kilo-code.new.autocomplete.enableAutoTrigger": false
 }
 
