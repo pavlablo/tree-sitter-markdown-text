@@ -143,3 +143,75 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+================================================================================
+Empty footnote label [^] degrades to text
+================================================================================
+empty [^] here.
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (shortcut_link
+          (link_label
+            (text_span
+              (operator_like))))
+        (text_span
+          (word_token)
+          (terminator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Footnote definition interrupts paragraph (n1)
+================================================================================
+See [^1] here.
+[^1]: Definition *with em*.
+End.
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (footnote_reference
+          (footnote_reference_open)
+          (footnote_reference_label))
+        (text_span
+          (word_token)
+          (terminator))))
+    (footnote_definition
+      (footnote_label
+        (footnote_label_open))
+      (inline
+        (text_span
+          (word_token))
+        (emphasis
+          (emphasis_delimiter)
+          (emphasis_content
+            (word_token)
+            (word_token))
+          (emphasis_delimiter))
+        (text_span
+          (terminator))))
+    (paragraph
+      (inline
+        (text_span
+          (word_token)
+          (terminator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))

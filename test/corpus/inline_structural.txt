@@ -541,6 +541,57 @@ Trailing paragraph.
           (terminator))))))
 
 ================================================================================
+Single-letter autolink scheme
+================================================================================
+Try <a:x> here and <http://ex.com> there.
+<1a:x> is not a scheme, stay literal.
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (autolink
+          (uri))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (autolink
+          (uri))
+        (text_span
+          (word_token)
+          (terminator))
+        (text_span
+          (bracket)
+          (identifier_like_token)
+          (separator)
+          (word_token)
+          (bracket))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (separator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
 Inline HTML tag
 ================================================================================
 See <span>raw</span> here.
@@ -733,6 +784,1323 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Unclosed emphasis star stopped at ATX heading boundary
+================================================================================
+text *unclosed
+# Heading stops the span
+more text
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (operator_like)
+          (word_token)))))
+  (section
+    (atx_heading
+      level: (atx_h1_marker)
+      heading_content: (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))))))
+
+================================================================================
+Underscore emphasis basic
+================================================================================
+_hello_
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (emphasis
+          (emphasis_delimiter)
+          (emphasis_content
+            (word_token))
+          (emphasis_delimiter))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Underscore emphasis unclosed degrades to text
+================================================================================
+after_
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token)
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Mixed emphasis delimiters stay text
+================================================================================
+*text_
+_text*
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like)
+          (word_token)
+          (operator_like))
+        (text_span
+          (identifier_like_token)
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Underscore closer alone on new line is not emphasis (documented limitation)
+================================================================================
+_text
+_
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (identifier_like_token))
+        (text_span
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Strong with double underscores
+================================================================================
+__hello__
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Strong unclosed degrades to text
+================================================================================
+after**
+after__
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token)
+          (operator_like)
+          (operator_like))
+        (text_span
+          (word_token)
+          (operator_like)
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Emphasis containing strong nests
+================================================================================
+*emphasis **and strong** inside*
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (emphasis
+          (emphasis_delimiter)
+          (emphasis_content
+            (word_token)
+            (strong
+              (strong_delimiter)
+              (strong_content
+                (word_token)
+                (word_token))
+              (strong_delimiter))
+            (word_token))
+          (emphasis_delimiter))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Strikethrough basic
+================================================================================
+~~hello~~
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (strikethrough
+          (strikethrough_delimiter)
+          (strikethrough_content
+            (word_token))
+          (strikethrough_delimiter))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Strikethrough unclosed degrades to text
+================================================================================
+after~~
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token)
+          (operator_like)
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Strikethrough requires both tildes to close
+================================================================================
+~~text~
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like)
+          (operator_like)
+          (word_token)
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Strikethrough closer at line start is not closed (documented limitation)
+================================================================================
+~~text
+~~close~~
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like)
+          (operator_like)
+          (word_token))
+        (strikethrough
+          (strikethrough_delimiter)
+          (strikethrough_content
+            (word_token))
+          (strikethrough_delimiter))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Unclosed autolink degrades to text, heading survives
+================================================================================
+see <http://example.com
+# heading
+more
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (bracket)
+          (word_token)
+          (separator)
+          (operator_like)
+          (operator_like)
+          (word_token)
+          (terminator)
+          (word_token)))))
+  (section
+    (atx_heading
+      (atx_h1_marker)
+      (inline
+        (text_span
+          (word_token))))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Unclosed footnote reference degrades to text, heading survives
+================================================================================
+see [^note
+# heading
+more
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (bracket)
+          (operator_like)
+          (word_token)))))
+  (section
+    (atx_heading
+      (atx_h1_marker)
+      (inline
+        (text_span
+          (word_token))))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Unclosed inline code degrades to text, heading survives
+================================================================================
+see `code
+# heading
+more
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (operator_like)
+          (word_token)))))
+  (section
+    (atx_heading
+      (atx_h1_marker)
+      (inline
+        (text_span
+          (word_token))))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Strong closed by a longer star run: **a***
+================================================================================
+**a***
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Strong closed by a four-star run: **a****
+================================================================================
+**a****
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (operator_like)
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Strong followed by unpaired stars: **a**b**
+================================================================================
+**a**b**
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (word_token)
+          (operator_like)
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Triple-star emphasis degrades to strong plus literal star
+================================================================================
+***both***
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (operator_like)
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Multiline emphasis parses without error
+================================================================================
+*foo
+bar baz*
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (emphasis
+          (emphasis_delimiter)
+          (emphasis_content
+            (word_token)
+            (word_token)
+            (word_token))
+          (emphasis_delimiter))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Unclosed emphasis stops before an ordered list
+================================================================================
+*foo
+1. bar
+*close
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like)
+          (word_token))))
+    (list
+      (list_item
+        (list_marker_dot)
+        (paragraph
+          (inline
+            (text_span
+              (word_token))
+            (text_span
+              (operator_like)
+              (word_token))
+            (text_span
+              (word_token))
+            (text_span
+              (word_token)
+              (terminator))))))))
+
+================================================================================
+Unclosed emphasis stops before a setext underline
+================================================================================
+*foo
+===
+*close
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (setext_heading
+      heading_content: (paragraph
+        (inline
+          (text_span
+            (operator_like)
+            (word_token))))
+      level: (setext_h1_underline))
+    (paragraph
+      (inline
+        (text_span
+          (operator_like)
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Intraword underscores are identifiers, not emphasis
+================================================================================
+foo_bar and snake_case_identifier
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (identifier_like_token))
+        (text_span
+          (word_token))
+        (text_span
+          (identifier_like_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Unclosed underscore with intraword closer stops before a fenced block
+================================================================================
+_build_log and foo_bar
+
+```
+code block
+```
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (identifier_like_token))
+        (text_span
+          (word_token))
+        (text_span
+          (identifier_like_token))))
+    (blank_line)
+    (fenced_code_block
+      (fenced_code_block_delimiter)
+      (block_continuation)
+      (code_fence_content
+        (block_continuation))
+      (fenced_code_block_delimiter))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Star list items with strong at item start do not run away
+================================================================================
+* **bold** text
+* **bold** text
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (list
+      (list_item
+        (list_marker_star)
+        (paragraph
+          (inline
+            (text_span
+              (operator_like)
+              (word_token)
+              (operator_like)
+              (operator_like))
+            (text_span
+              (word_token)))))
+      (list_item
+        (list_marker_star)
+        (paragraph
+          (inline
+            (text_span
+              (operator_like)
+              (word_token)
+              (operator_like)
+              (operator_like))
+            (text_span
+              (word_token)))
+          (block_continuation))
+        (blank_line)))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Nested star list items with strong at item start do not run away
+================================================================================
+1.  Title: Deodorant
+    *   **Authors:** Dunja
+    *   **Journal:** 2024
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (list
+      (list_item
+        (list_marker_dot)
+        (paragraph
+          (inline
+            (text_span
+              (word_token)
+              (separator))
+            (text_span
+              (word_token)))
+          (block_continuation))
+        (list
+          (list_item
+            (list_marker_star)
+            (paragraph
+              (inline
+                (text_span
+                  (operator_like)
+                  (word_token)
+                  (separator)
+                  (operator_like)
+                  (operator_like))
+                (text_span
+                  (word_token)))
+              (block_continuation)))
+          (list_item
+            (list_marker_star)
+            (paragraph
+              (inline
+                (text_span
+                  (operator_like)
+                  (word_token)
+                  (separator)
+                  (operator_like)
+                  (operator_like))
+                (text_span
+                  (numeric_token)))
+              (block_continuation))
+            (blank_line)))))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Emoji with variation selector parses as ordinary text
+================================================================================
+No ⚠️ scopes found.
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (operator_like)
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Underscore before inline code does not form phantom emphasis
+================================================================================
+x a_: `<a_>`
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (operator_like)
+          (separator))
+        (inline_code
+          (inline_code_delimiter)
+          (inline_code_content)
+          (inline_code_delimiter))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Underscore path inside a table cell does not run away
+================================================================================
+| _sample_repos/foo/_bar | 329,697 | 0.186 |
+| --- | --- | --- |
+| a | b | c |
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (pipe_table
+      (pipe_table_header
+        (pipe_table_cell
+          (inline
+            (path_like_token)))
+        (pipe_table_cell
+          (inline
+            (numeric_token)
+            (separator)
+            (numeric_token)))
+        (pipe_table_cell
+          (inline
+            (numeric_token))))
+      (pipe_table_delimiter_row
+        (pipe_table_delimiter_cell)
+        (pipe_table_delimiter_cell)
+        (pipe_table_delimiter_cell))
+      (pipe_table_row
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token)))
+        (pipe_table_cell
+          (inline
+            (word_token)))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+==================
+Inline code with a foreign backtick run closes on the matching run
+==================
+text ` ```lang ``` ` more
+
+Trailing paragraph.
+
+---
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (inline_code
+          (inline_code_delimiter)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_delimiter))
+        (text_span
+          (word_token))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+==================
+Level-2 inline code with a 3-run inside closes on the matching 2-run
+==================
+`` ``` ``` ``
+
+Trailing paragraph.
+
+---
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_code
+          (inline_code_delimiter)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_delimiter))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+==================
+A pipe inside a code span is content in a normal paragraph
+==================
+`a|b`
+
+Trailing paragraph.
+
+---
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_code
+          (inline_code_delimiter)
+          (inline_code_content)
+          (inline_code_delimiter))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+==================
+A pipe inside a link label is content in a normal paragraph
+==================
+[a|b](/u)
+
+Trailing paragraph.
+
+---
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_link
+          (link_label
+            (text_span
+              (word_token)
+              (operator_like)
+              (word_token)))
+          (link_destination))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Multi-line inline code span (line ending normalized to space)
+================================================================================
+`a
+b`
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (inline_code
+          (inline_code_delimiter)
+          (inline_code_content)
+          (inline_code_content)
+          (inline_code_delimiter))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Inline code span with blank line inside degrades to text
+================================================================================
+`a
+
+b`
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like)
+          (word_token))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token)
+          (operator_like))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Mixed delimiter run ***a** b* degrades to text (B1 containment)
+================================================================================
+***a** b*
+
+# heading
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like))
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (word_token)
+          (operator_like))))
+    (blank_line))
+  (section
+    (atx_heading
+      level: (atx_h1_marker)
+      heading_content: (inline
+        (text_span
+          (word_token))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Nested ***a **b** c* degrades to text (B1 containment)
+================================================================================
+***a **b** c*
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like))
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (word_token)
+          (operator_like)
+          (operator_like))
+        (text_span
+          (word_token)
+          (operator_like))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Mixed underscore run ___a__ b_ degrades to text (B1 underscore containment)
+================================================================================
+___a__ b_
+
+# heading
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (operator_like))
+        (strong
+          (strong_delimiter)
+          (strong_content
+            (word_token))
+          (strong_delimiter))
+        (text_span
+          (word_token)
+          (operator_like))))
+    (blank_line))
+  (section
+    (atx_heading
+      level: (atx_h1_marker)
+      heading_content: (inline
+        (text_span
+          (word_token))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Non-breaking space inside emphasis (NBSP)
+================================================================================
+word *x * tail
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (emphasis
+          (emphasis_delimiter)
+          (emphasis_content
+            (word_token))
+          (emphasis_delimiter))
+        (text_span
+          (word_token))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+================================================================================
+Image after plain text forms an image node (issue #9)
+================================================================================
+x![alt](url)
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Image inside brackets forms bracket + image + bracket (issue #9)
+================================================================================
+[![alt](url)]
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (bracket))
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))
+        (text_span
+          (bracket))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Image after word then text (issue #9)
+================================================================================
+word![x](y) z
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))
+        (text_span
+          (word_token))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Two images after text (issue #9)
+================================================================================
+x![a](b)![c](d)
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Lone exclamation mark stays a terminator, not an image (issue #9)
+================================================================================
+Hello!
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token)
+          (terminator))))
+    (blank_line)
+    (paragraph
+      (inline
         (text_span
           (word_token))
         (text_span

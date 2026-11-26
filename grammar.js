@@ -15,7 +15,6 @@
 //  - Pandoc display math ($$), Pandoc inline math ($)
 //  - Generic container directives (:::)
 //  - Footnote definitions and references
-//  - Image blocks (paragraph with a single image)
 //  - MDX JSX blocks and inline elements (shallow)
 //
 // Inline content emitted under paragraph/heading/footnote bodies is
@@ -46,7 +45,6 @@ const PRECEDENCE_LEVEL_FOOTNOTE = 11;
 const PRECEDENCE_LEVEL_IMAGE = 11;
 const PRECEDENCE_LEVEL_MATH_BLOCK = 12;
 const PRECEDENCE_LEVEL_DIRECTIVE_BLOCK = 12;
-const PRECEDENCE_LEVEL_IMAGE_BLOCK = 12;
 
 export default grammar({
   name: 'markdown',
@@ -78,10 +76,67 @@ export default grammar({
     //    (the `[^` token outranks the bare `[` at the lexer).
     //  - `[` and `]` are excluded (see `_label_bracket`), so the label always
     //    closes at the first unescaped `]`.
-    link_label: ($) => seq('[', repeat1(choice(
+    // The opening `[` accepts BOTH the scanner-gated LINK_LABEL_OPEN external
+    // token (aliased back to the literal so the tree is unchanged) and the
+    // plain literal `[`.  The scanner emits LINK_LABEL_OPEN only when a
+    // closing `]` exists before the next block boundary AND the label is
+    // non-empty AND the label does not contain a nested whole link
+    // (link_label_has_valid_close in src/scanner.c), mirroring `[^`
+    // (FOOTNOTE_REF_OPEN): that lets a `[` which really starts a link break
+    // out of a preceding text_span (the greedy `prec.right` repeat would
+    // otherwise absorb it as a plain bracket), and it is the path a real link
+    // takes mid-span.  The literal-'[' fallback covers the benign scanner
+    // declines — task/callout/footnote-shaped `[` (where a more specific
+    // token branch short-circuits the link gate), empty and unclosed labels —
+    // where the grammar still forms a link at an element boundary.
+    //
+    // "Link inside a link label" (CommonMark §6.3, `[foo [bar](/uri)](/uri)`)
+    // is handled by the combination of the scanner gate and the negative
+    // precedence on _label_nested_brackets, NOT by removing the fallback: the
+    // scanner refuses LINK_LABEL_OPEN for an outer `[` whose label would
+    // contain a nested whole link, and _label_nested_brackets (prec -1) loses
+    // to the inner link productions, so the innermost link wins and the outer
+    // `[`/`]` degrade to literal brackets.  The literal-'[' fallback stays
+    // for the BENIGN scanner declines, but a nested-link denial is signalled
+    // with the distinct LINK_LABEL_NESTED_DENIED token (routed into `bracket`,
+    // excluded from this opener): the outer `[` then degrades to a literal
+    // bracket deterministically — the same AST at EOF and after a blank line,
+    // because the fallback (which could re-form a label and swallow the inner
+    // link at EOF) is unreachable from that token.
+    link_label: ($) => seq(
+      choice(alias($._link_label_open, '['), '['),
+      repeat1(choice(
+        $._inline_label_element,
+        $._label_nested_brackets,
+        $._soft_line_break,
+      )), ']'),
+
+    // A balanced square-bracket group nested inside a link label.  Per
+    // CommonMark §6.3 a link label may contain balanced brackets (e.g.
+    // `[link with [nested] text]`); the inner `[...]` is literal label text,
+    // not a nested link.  Recursive so arbitrarily deep nesting is accepted;
+    // the label itself closes only at the bracket that balances the opening
+    // `[`, not at the first `]` that closes an inner group.
+    //
+    // The NEGATIVE precedence is the consolidated fix for "a link inside a
+    // link label" (issue #72 / A10, `[[A10](url)]`).  A nested `[...]` that
+    // would swallow a whole inner link (`[bar](/uri)` in `[foo [bar](/uri)]`)
+    // must lose to the inner link: CommonMark §6.3 — a link cannot contain
+    // another link, the innermost wins.  The scanner's LINK_LABEL_OPEN gate
+    // already refuses the OUTER `[` when its label would contain a nested
+    // link, but the grammar's literal-'[' fallback in link_label would still
+    // let _label_nested_brackets swallow the inner link as label text (and the
+    // outcome then depends on unrelated trailing content).  Giving this rule a
+    // lower precedence than every link production (default 0, dynamic 10)
+    // makes the parser prefer the inner link interpretation whenever one
+    // exists; when no link interpretation exists (a plain `[nested]` group with
+    // no following `(`, `[` or `]`), _label_nested_brackets remains the only
+    // way to consume the group and still matches.
+    _label_nested_brackets: ($) => prec(-1, seq('[', repeat(choice(
       $._inline_label_element,
+      $._label_nested_brackets,
       $._soft_line_break,
-    )), ']'),
+    )), ']')),
 
     // One inline element allowed inside a link label.
     _inline_label_element: ($) => choice(
@@ -115,6 +170,56 @@ export default grammar({
     ))),
     // Bracket punctuation allowed in a label: everything except `[`/`]`.
     _label_bracket: ($) => alias(choice('(', ')', '{', '}', '<', '>'), $.bracket),
+
+    // Pipe-table variants of the label element sets.  GFM §4.10: an unescaped
+    // `|` is a cell separator even inside a link/image/footnote label, so a
+    // label opened in one cell cannot span cells.  These variants reuse the
+    // normal label structure but swap in `_pipe_table_operator_like` (which
+    // excludes `|`) for `operator_like`, so a bare `|` inside `[...]` /
+    // `![...]` / `[^...]` is never consumed as label content and instead
+    // splits the cell (mirroring how `_pipe_table_text_span` already excludes
+    // `|` from plain cell text).  The PUBLIC node kinds are unchanged: at the
+    // use sites below the pipe-table labels still alias to `link_label` /
+    // `text_span` etc., so `node-types.json` public kinds do not change.
+    _pipe_table_link_label: ($) => seq(
+      choice(alias($._link_label_open, '['), '['),
+      repeat1(choice(
+        $._pipe_table_label_element,
+        $._pipe_table_label_nested_brackets,
+        $._soft_line_break,
+      )), ']'),
+    _pipe_table_label_nested_brackets: ($) => prec(-1, seq('[', repeat(choice(
+      $._pipe_table_label_element,
+      $._pipe_table_label_nested_brackets,
+      $._soft_line_break,
+    )), ']')),
+    _pipe_table_label_element: ($) => choice(
+      $._whitespace,
+      $.inline_code,
+      $.autolink,
+      $.html_inline,
+      $.mdx_jsx_inline,
+      $.math_inline,
+      $.strong,
+      $.emphasis,
+      $.strikethrough,
+      $.backslash_escape,
+      $.entity_reference,
+      $.numeric_character_reference,
+      alias($._pipe_table_label_text, $.text_span),
+    ),
+    // Runs of plain text tokens inside a pipe-table label: `_label_text` with
+    // `_pipe_table_operator_like` (no `|`) in place of `operator_like`.
+    _pipe_table_label_text: ($) => prec.right(repeat1(choice(
+      $.numeric_token,
+      $.path_like_token,
+      $.identifier_like_token,
+      $.word_token,
+      $.terminator,
+      $.separator,
+      $._label_bracket,
+      $._pipe_table_operator_like,
+    ))),
 
     link_destination: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, choice(
       seq('<', repeat(choice($._text_no_angle, $.backslash_escape, $.entity_reference, $.numeric_character_reference)), '>'),
@@ -205,7 +310,6 @@ export default grammar({
       $.footnote_definition,
       $.math_block,
       $.directive_block,
-      $.image_block,
       $.pipe_table,
     ),
     section: ($) => choice($._section1, $._section2, $._section3, $._section4, $._section5, $._section6),
@@ -416,7 +520,7 @@ export default grammar({
         choice($._newline, $._eof),
       ),
     ),
-    footnote_label: ($) => seq(alias($._footnote_ref_open, $.footnote_label_open), repeat1(choice(
+    footnote_label: ($) => seq(alias(choice($._footnote_ref_open, $._footnote_definition_start_open), $.footnote_label_open), repeat1(choice(
       $._word,
       $.backslash_escape,
       punctuation_without($, ['[', ']', '^']),
@@ -427,60 +531,79 @@ export default grammar({
     //   $$
     //   formula
     //   $$
-    // Pure grammar implementation: the opening `$$` and closing `$$` are each
-    // required to sit alone on their own line. The literal `$$` token (two
-    // adjacent `$` characters) beats the single `$` punctuation that would
-    // otherwise be consumed by `_line` because tree-sitter prefers the longer
-    // token at a given lex position.
-    math_block: ($) => prec.dynamic(PRECEDENCE_LEVEL_MATH_BLOCK, seq(
-      alias($._math_block_delimiter, $.math_block_delimiter),
-      $._newline,
-      optional($.math_block_content),
-      alias($._math_block_delimiter, $.math_block_delimiter),
-      choice($._newline, $._eof),
+    // The opening `$$` and closing `$$` are external scanner tokens
+    // (MATH_BLOCK_OPEN/CLOSE_DELIMITER) carrying a closing-delimiter lookahead
+    // check in the scanner (has_closing_delimiter).  The opening `$$` is
+    // required to sit alone on its own line; an unclosed `$$` degrades to
+    // ordinary text instead of swallowing the rest of the document.
+    math_block: ($) => prec.dynamic(PRECEDENCE_LEVEL_MATH_BLOCK, choice(
+      // Multi-line form:
+      //   $$
+      //   formula
+      //   $$
+      // The opening `$$` sits alone on its own line; content spans lines and
+      // the closing `$$` sits alone on its own line.
+      seq(
+        alias($._math_block_open, $.math_block_delimiter),
+        $._newline,
+        optional($.math_block_content),
+        alias($._math_block_close, $.math_block_delimiter),
+        choice($._newline, $._eof),
+      ),
+      // Single-line form: `$$ formula $$` on one line.  The closing `$$` must
+      // appear before the end of the line.  Content is the text between the two
+      // `$$` runs and may contain a single `$` (`$$a$b$$`); a `$$` run inside
+      // content is never consumed (the external MATH_BLOCK_CLOSE_DELIMITER
+      // token wins at the closer), so `$$a$$b$$` degrades to text rather than
+      // mis-nesting.
+      seq(
+        alias($._math_block_open, $.math_block_delimiter),
+        optional(alias($._math_block_single_line_content, $.math_block_content)),
+        alias($._math_block_close, $.math_block_delimiter),
+        choice($._newline, $._eof),
+      ),
     )),
-    _math_block_delimiter: ($) => token(prec(4, '$$')),
+    // _math_block_open / _math_block_close are external scanner tokens
+    // (MATH_BLOCK_OPEN_DELIMITER/MATH_BLOCK_CLOSE_DELIMITER).  A run of
+    // EXACTLY two `$` is the delimiter; `$$$` is not a math-block delimiter.
     math_block_content: ($) => prec.right(repeat1(choice($._line, $._newline))),
+    // Single-line display-math content: text on the opening `$$`'s line, up to
+    // (but not including) the closing `$$`.  Excludes `_newline` (the
+    // multi-line form owns content that spans lines) and stops before a `$$`
+    // run; a lone `$` is ordinary content.  Hidden: aliased to
+    // `$.math_block_content` so the emitted tree matches the multi-line form.
+    _math_block_single_line_content: ($) => prec.right(repeat1(choice(
+      $._word,
+      $._whitespace,
+      punctuation_without($, ['$']),
+      '$',
+    ))),
 
     // A directive block (`:::name ... :::`). Implemented following the syntax
     // used by remark-directive / MyST / Pandoc fenced divs: a line opening
-    // with three or more colons followed by an optional name, content lines,
-    // then a matching closing line of colons. For simplicity the opening and
-    // closing use a fixed `:::` literal; longer runs fall back to the
-    // paragraph rule.
+    // with exactly three colons followed by an optional name, content lines,
+    // then a matching closing line of colons. The opening and closing are
+    // external scanner tokens (`_directive_block_open` / `_directive_block_close`)
+    // carrying a closing-delimiter lookahead check in the scanner
+    // (has_closing_delimiter); an unclosed `:::` degrades to ordinary text
+    // instead of swallowing the rest of the document.
     directive_block: ($) => prec.dynamic(PRECEDENCE_LEVEL_DIRECTIVE_BLOCK, seq(
-      alias($._directive_block_delimiter, $.directive_block_delimiter),
+      alias($._directive_block_open, $.directive_block_delimiter),
       optional($._whitespace),
       optional($.directive_name),
       $._newline,
       optional($.directive_block_content),
-      alias($._directive_block_delimiter, $.directive_block_delimiter),
+      alias($._directive_block_close, $.directive_block_delimiter),
       choice($._newline, $._eof),
     )),
-    _directive_block_delimiter: ($) => ':::',
+    // _directive_block_open / _directive_block_close are external scanner
+    // tokens (DIRECTIVE_BLOCK_OPEN/CLOSE_DELIMITER).  A run of EXACTLY three
+    // colons is the delimiter; `::::` is not a directive delimiter.
     directive_name: ($) => prec.right(repeat1(choice(
       $._word,
       punctuation_without($, [':']),
     ))),
     directive_block_content: ($) => prec.right(repeat1(choice($._line, $._newline))),
-
-    // A block-level image (paragraph consisting of a single image).
-    // Syntax: `![alt](destination)` on its own line.
-    // Kept intentionally minimal: title strings are omitted to keep the rule
-    // unambiguous with `link_reference_definition`. If a title is present the
-    // paragraph falls back to ordinary `paragraph` with inline content.
-    image_block: ($) => prec.dynamic(PRECEDENCE_LEVEL_IMAGE_BLOCK, seq(
-      optional($._whitespace),
-      '!',
-      $.link_label,
-      '(',
-      optional($._whitespace),
-      optional($.link_destination),
-      optional($._whitespace),
-      ')',
-      optional($._whitespace),
-      choice($._newline, $._eof),
-    )),
 
     // MDX JSX block. Shallow block-level recognizer: a line that begins
     // (after optional whitespace) with an MDX-style JSX tag (<Name ...>,
@@ -519,6 +642,9 @@ export default grammar({
         optional($._no_indented_chunk),
         $.link_title,
       ))),
+      // CommonMark permits trailing whitespace after the destination (or after
+      // an optional title) before the line ending, e.g. `[a]: https://x.com   `.
+      optional($._whitespace),
       choice($._newline, $._soft_line_break, $._eof),
     )),
     _text_inline_no_link: ($) => choice($._word, $._whitespace, punctuation_without($, ['[', ']'])),
@@ -567,7 +693,13 @@ export default grammar({
       ), $.paragraph),
       choice($._newline, $._eof),
     ),
-    _callout_marker_open: ($) => seq('[', '!'),
+    // Callout marker `[!`.  The opening `[` is the scanner-gated
+    // CALLOUT_MARKER_OPEN external token (aliased back to the literal `[`):
+    // the scanner emits it only when `[!TYPE]` is a valid GFM alert shape
+    // (TYPE one of NOTE/TIP/IMPORTANT/WARNING/CAUTION), so a prose link whose
+    // label starts with `!` (e.g. `[!important](url)`) is never mistaken for
+    // an alert and keeps its literal `[`.
+    _callout_marker_open: ($) => seq(alias($._callout_marker_open_ext, '['), '!'),
     _callout_marker_close: ($) => ']',
     _callout_type: ($) => choice('NOTE', 'TIP', 'IMPORTANT', 'WARNING', 'CAUTION'),
 
@@ -704,7 +836,10 @@ export default grammar({
       /\[[xX]\]/,
       /\[[ \t]\]/,
     ),
-    _whitespace: ($) => /[ \t]+/,
+    // CommonMark §2.3: Unicode whitespace includes NBSP (U+00A0, Zs category)
+    // in addition to space/tab.  NBSP therefore tokenizes as whitespace exactly
+    // like a regular space (hidden node), never falling into ERROR.
+    _whitespace: ($) => /[ \t\u00A0]+/,
 
     // ---------------------------------------------------------------------
     // INLINE CONTENT
@@ -805,7 +940,20 @@ export default grammar({
     separator: ($) => choice(',', ';', ':'),
 
     // Paired brackets (individual chars; pairing is structural in link/image/html rules).
-    bracket: ($) => choice('(', ')', '[', ']', '{', '}', '<', '>'),
+    // `bracket` also accepts the scanner's LINK_LABEL_NESTED_DENIED external,
+    // aliased back to the literal `[`.  That token is emitted when a '[' would
+    // otherwise open a link label whose content is a nested whole link (issue
+    // #72 / A10, `[foo [bar](/uri)](/uri)`); a link cannot contain another link
+    // (CommonMark §6.3), so the innermost link wins and the outer '[' must
+    // degrade to a literal bracket DETERMINISTICALLY.  Routing the token into
+    // `bracket` makes it a literal bracket at every inline site while keeping
+    // it out of `link_label`'s opener (which accepts only LINK_LABEL_OPEN and
+    // the literal '['), so the outer '[' can never re-form a label and swallow
+    // the inner link — EOF and blank-line parses agree.
+    bracket: ($) => choice(
+      alias($._link_label_nested_denied, '['),
+      '(', ')', '[', ']', '{', '}', '<', '>',
+    ),
 
     // Operator-like punctuation. Covers spec-listed operators plus the
     // remaining punctuation chars so every punctuation lexeme has a class.
@@ -818,6 +966,7 @@ export default grammar({
       alias($._dollar_dollar_inline, '$$'),
       $._unicode_symbol_run,
       $._unicode_punctuation_run,
+      $._unicode_mark_run,
       '=', '+', '-', '*', '/', '|', '&',
       // Remaining ASCII punctuation not covered by other classes.
       '"', '#', '$', '%', '\'', '@', '\\', '^', '_', '`', '~',
@@ -825,32 +974,76 @@ export default grammar({
     _dollar_dollar_inline: ($) => token(prec(3, '$$')),
     _unicode_symbol_run: ($) => new RustRegex('[\\p{S}&&[^\\x00-\\x7F]]+'),
     _unicode_punctuation_run: ($) => new RustRegex('[\\p{P}&&[^\\x00-\\x7F]]+'),
+    // Unicode combining marks (Mn/Mc/Me) such as emoji variation selectors
+    // (U+FE0F) and decomposed accents.  These are neither letters, symbols nor
+    // punctuation, so without this run ordinary prose containing them (emoji
+    // with variation selectors, decomposed diacritics) falls into ERROR.
+    _unicode_mark_run: ($) => new RustRegex('[\\p{M}&&[^\\x00-\\x7F]]+'),
 
     // --- §3.2 structural inline nodes -----------------------------------
 
     // Inline code. Supports delimiter runs of 1 or 2 backticks. The content
-    // is everything up to the matching run of the same length. A full
-    // CommonMark implementation handles arbitrarily long runs; two cases
-    // cover the overwhelming majority of real documents.
+    // is everything up to the matching run of the same length; a run of a
+    // DIFFERENT length inside the span is content (CommonMark §6.4, e.g. a
+    // ``` run inside a level-1 span or a ``` run inside a level-2 span).
+    // The content regex cannot span backticks, so foreign-length runs are
+    // emitted by the scanner as _inline_code_backtick_run tokens (tracking
+    // the open delimiter length), aliased to inline_code_content.  The
+    // delimiters are external scanner tokens: an OPEN is only emitted when a
+    // matching closer run exists before the next block boundary, so an
+    // unclosed backtick degrades to ordinary text instead of a runaway
+    // ERROR.
+    //
+    // A code span may cross a single line ending: CommonMark 0.31.2 §6.3
+    // normalizes line endings inside a code span to spaces, and forbids only
+    // two consecutive line endings (a blank line).  `_soft_line_break` matches
+    // exactly ONE line ending (SOFT_LINE_ENDING + optional block continuation),
+    // so `` `a\nb` `` assembles as one inline_code.  The blank-line exclusion
+    // is preserved on both sides: the scanner never emits an OPEN when no
+    // closer exists before a blank line (has_closing_delimiter stops at `\n\n`),
+    // and `_soft_line_break` cannot match two consecutive line endings.  Same
+    // mechanism as the multi-line emphasis fix (Bug 5).
     inline_code: ($) => choice(
       seq(
-        alias($._backtick_1, $.inline_code_delimiter),
-        optional(alias(/[^`\n\r]+/, $.inline_code_content)),
-        alias($._backtick_1, $.inline_code_delimiter),
+        alias($._inline_code_backtick_1_open, $.inline_code_delimiter),
+        repeat(choice(
+          alias(/[^`\n\r]+/, $.inline_code_content),
+          alias($._inline_code_backtick_run, $.inline_code_content),
+          $._soft_line_break,
+        )),
+        alias($._inline_code_backtick_1_close, $.inline_code_delimiter),
       ),
       seq(
-        alias($._backtick_2, $.inline_code_delimiter),
-        optional(alias(/([^`\n\r]|`[^`\n\r])+/, $.inline_code_content)),
-        alias($._backtick_2, $.inline_code_delimiter),
+        alias($._inline_code_backtick_2_open, $.inline_code_delimiter),
+        repeat(choice(
+          alias(/([^`\n\r]|`[^`\n\r])+/, $.inline_code_content),
+          alias($._inline_code_backtick_run, $.inline_code_content),
+          $._soft_line_break,
+        )),
+        alias($._inline_code_backtick_2_close, $.inline_code_delimiter),
       ),
     ),
-    _backtick_1: ($) => token(prec(1, '`')),
-    _backtick_2: ($) => token(prec(2, '``')),
 
-    // Autolinks: <scheme:rest> and <email@host>.
+    // Autolinks: <scheme:rest> and <email@host>.  The external scanner token
+    // (_autolink_open) is a GATE: it emits ONLY the opening `<`, and only
+    // after validating ahead that the whole `<...>` is a well-formed URI or
+    // email closed by `>` on the same line.  The content is then re-parsed by
+    // ordinary grammar rules here into named `uri` / `email` children.  This
+    // preserves the bug fix (an unclosed `<` degrades to text, never a
+    // runaway ERROR) while keeping the structured `uri`/`email` nodes that
+    // downstream ast-grep rules (rea-skills `kind: uri` / `kind: email`)
+    // depend on.
     autolink: ($) => choice(
-      seq('<', alias(/[A-Za-z][A-Za-z0-9+.\-]{1,31}:[^<> \t\n\r]+/, $.uri), '>'),
-      seq('<', alias(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+(\.[A-Za-z0-9\-]+)+/, $.email), '>'),
+      seq(
+        $._autolink_open,
+        alias(/[A-Za-z][A-Za-z0-9+.\-]*:[^<> \t\n\r]+/, $.uri),
+        '>',
+      ),
+      seq(
+        $._autolink_open,
+        alias(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+(\.[A-Za-z0-9\-]+)+/, $.email),
+        '>',
+      ),
     ),
 
     // Raw HTML spans: opening tag, closing tag, self-closing, comment,
@@ -895,8 +1088,9 @@ export default grammar({
     _math_inline_content: ($) => new RustRegex('[^$\\s\\n\\r](?:[^$\\n\\r]*[^$\\s\\n\\r])?'),
 
     // Footnote reference [^id]. Distinct from footnote_definition which has
-    // `:` immediately after the label. Uses a combined `[^` token to beat
-    // the `[` bracket in the inline-content lexer context.
+    // `:` immediately after the label. Uses a combined `[^` external scanner
+    // token (gated on a closing `]`) to beat the `[` bracket in the
+    // inline-content lexer context and to avoid a runaway ERROR when unclosed.
     footnote_reference: ($) => seq(
       alias($._footnote_ref_open, $.footnote_reference_open),
       alias(repeat1(choice(
@@ -905,7 +1099,6 @@ export default grammar({
       )), $.footnote_reference_label),
       ']',
     ),
-    _footnote_ref_open: ($) => token(prec(2, '[^')),
 
     // Inline images. Reuse link_label and link_destination for the internals.
     // A single `image` kind covers all four forms; the trailing reference part
@@ -923,7 +1116,7 @@ export default grammar({
     // than the shortcut fallback so that `![alt][label]` collapses into ONE
     // image node instead of a shortcut image followed by a separate link.
     image: ($) => prec.dynamic(PRECEDENCE_LEVEL_IMAGE, prec.right(seq(
-      '!',
+      alias($._image_marker, '!'),
       $.link_label,
       optional(choice(
         // inline destination
@@ -959,19 +1152,22 @@ export default grammar({
       optional($._whitespace), ')')),
     full_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(1, seq(
       $.link_label, $.link_label))),
-    collapsed_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, seq(
-      $.link_label, '[', ']')),
+    collapsed_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(1, seq(
+      $.link_label, '[', ']'))),
     shortcut_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(0, $.link_label)),
 
     // Strikethrough (GFM): ~~text~~
     strikethrough: ($) => prec.dynamic(1, seq(
-      alias($._strikethrough_delimiter, $.strikethrough_delimiter),
+      alias($._strikethrough_open, $.strikethrough_delimiter),
       alias(repeat1($._inline_no_strikethrough), $.strikethrough_content),
-      alias($._strikethrough_delimiter, $.strikethrough_delimiter),
+      alias($._strikethrough_close, $.strikethrough_delimiter),
     )),
-    _strikethrough_delimiter: ($) => token(prec(2, '~~')),
+    // _strikethrough_open / _strikethrough_close are external scanner tokens
+    // (STRIKETHROUGH_OPEN/CLOSE) carrying a closing-delimiter lookahead check
+    // in the scanner (has_closing_delimiter).
     _inline_no_strikethrough: ($) => choice(
       $._whitespace,
+      $._soft_line_break,
       $.inline_code,
       $.autolink,
       $.html_inline,
@@ -1001,17 +1197,16 @@ export default grammar({
     // left/right-flanking rules are not reproduced; intraword `_` and
     // ambiguous cases may parse differently from a spec-strict parser.
     strong: ($) => prec.dynamic(2, choice(
-      seq(alias($._strong_star_delim, $.strong_delimiter),
+      seq(alias($._strong_star_open, $.strong_delimiter),
         alias(repeat1($._inline_no_strong), $.strong_content),
-        alias($._strong_star_delim, $.strong_delimiter)),
-      seq(alias($._strong_under_delim, $.strong_delimiter),
+        alias($._strong_star_close, $.strong_delimiter)),
+      seq(alias($._strong_under_open, $.strong_delimiter),
         alias(repeat1($._inline_no_strong), $.strong_content),
-        alias($._strong_under_delim, $.strong_delimiter)),
+        alias($._strong_under_close, $.strong_delimiter)),
     )),
-    _strong_star_delim: ($) => token(prec(3, '**')),
-    _strong_under_delim: ($) => token(prec(3, '__')),
     _inline_no_strong: ($) => choice(
       $._whitespace,
+      $._soft_line_break,
       $.inline_code,
       $.autolink,
       $.html_inline,
@@ -1036,17 +1231,20 @@ export default grammar({
     ),
 
     emphasis: ($) => prec.dynamic(1, choice(
-      seq(alias($._emphasis_star_delim, $.emphasis_delimiter),
+      seq(alias($._emphasis_star_open, $.emphasis_delimiter),
         alias(repeat1($._inline_no_emphasis), $.emphasis_content),
-        alias($._emphasis_star_delim, $.emphasis_delimiter)),
-      seq(alias($._emphasis_under_delim, $.emphasis_delimiter),
+        alias($._emphasis_star_close, $.emphasis_delimiter)),
+      seq(alias($._emphasis_under_open, $.emphasis_delimiter),
         alias(repeat1($._inline_no_emphasis), $.emphasis_content),
-        alias($._emphasis_under_delim, $.emphasis_delimiter)),
+        alias($._emphasis_under_close, $.emphasis_delimiter)),
     )),
-    _emphasis_star_delim: ($) => token(prec(1, '*')),
-    _emphasis_under_delim: ($) => token(prec(1, '_')),
+    // _emphasis_star_open / _emphasis_star_close and _emphasis_under_open /
+    // _emphasis_under_close are external scanner tokens (EMPHASIS_STAR_* /
+    // EMPHASIS_UNDERSCORE_*) carrying a closing-delimiter lookahead check in
+    // the scanner (has_closing_delimiter).
     _inline_no_emphasis: ($) => choice(
       $._whitespace,
+      $._soft_line_break,
       $.inline_code,
       $.autolink,
       $.html_inline,
@@ -1140,19 +1338,153 @@ export default grammar({
       ),
     ),
 
-    pipe_table_cell: ($) => prec.right(seq(
-      choice(
-        $._word,
-        $._backslash_escape,
-        punctuation_without($, ['|']),
-      ),
-      repeat(choice(
-        $._word,
-        $._whitespace,
-        $._backslash_escape,
-        punctuation_without($, ['|']),
+    pipe_table_cell: ($) => prec.right(alias($._pipe_table_inline_content, $.inline)),
+
+    // Structured inline content inside a table cell.  Consumers can now query
+    // links, emphasis, strong, etc. inside cells.  The `|` column separator is
+    // deliberately excluded from every token here so a bare `|` still splits
+    // cells; `_pipe_table_operator_like` is `operator_like` minus `|`.  Link,
+    // image and footnote constructs use their `_pipe_table_*` variants below
+    // so an unescaped `|` inside a label / destination / title is also never
+    // absorbed (GFM §4.10).
+    _pipe_table_inline_content: ($) => prec.right(repeat1(choice(
+      $._whitespace,
+      $.inline_code,
+      $.autolink,
+      $.html_inline,
+      $.mdx_jsx_inline,
+      $.math_inline,
+      alias($._pipe_table_image, $.image),
+      alias($._pipe_table_footnote_reference, $.footnote_reference),
+      alias($._pipe_table_inline_link, $.inline_link),
+      alias($._pipe_table_full_reference_link, $.full_reference_link),
+      alias($._pipe_table_collapsed_reference_link, $.collapsed_reference_link),
+      alias($._pipe_table_shortcut_link, $.shortcut_link),
+      $.strong,
+      $.emphasis,
+      $.strikethrough,
+      $.backslash_escape,
+      $._pipe_table_text_span,
+    ))),
+    _pipe_table_text_span: ($) => prec.right(repeat1(choice(
+      $.numeric_token,
+      $.path_like_token,
+      $.identifier_like_token,
+      $.word_token,
+      $.terminator,
+      $.separator,
+      $.bracket,
+      $._pipe_table_operator_like,
+    ))),
+    _pipe_table_operator_like: ($) => choice(
+      '::', '->', '=>',
+      alias($._dollar_dollar_inline, '$$'),
+      $._unicode_symbol_run,
+      $._unicode_punctuation_run,
+      '=', '+', '-', '*', '/', '&',
+      '"', '#', '$', '%', '\'', '@', '\\', '^', '_', '`', '~',
+    ),
+
+    // Pipe-table variants of the link/image/footnote rules used inside
+    // `_pipe_table_inline_content`.  They reuse the public non-table shapes
+    // (same node kinds: `link_label`, `inline_link`, `image`, ...) but source
+    // label / destination / title content from the `|`-excluding sets above so
+    // an unescaped `|` splits the cell instead of being absorbed (GFM §4.10).
+    _pipe_table_image: ($) => prec.dynamic(PRECEDENCE_LEVEL_IMAGE, prec.right(seq(
+      alias($._image_marker, '!'),
+      alias($._pipe_table_link_label, $.link_label),
+      optional(choice(
+        seq('(', optional($._whitespace), optional(alias($._pipe_table_link_destination, $.link_destination)),
+          optional(seq($._whitespace, alias($._pipe_table_link_title, $.link_title))),
+          optional($._whitespace), ')'),
+        prec(1, alias($._pipe_table_link_label, $.link_label)),
+        prec(1, seq('[', ']')),
       )),
+    ))),
+    _pipe_table_inline_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, seq(
+      alias($._pipe_table_link_label, $.link_label),
+      '(', optional($._whitespace), optional(alias($._pipe_table_link_destination, $.link_destination)),
+      optional(seq($._whitespace, alias($._pipe_table_link_title, $.link_title))),
+      optional($._whitespace), ')')),
+    _pipe_table_full_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(1, seq(
+      alias($._pipe_table_link_label, $.link_label),
+      alias($._pipe_table_link_label, $.link_label)))),
+    _pipe_table_collapsed_reference_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(1, seq(
+      alias($._pipe_table_link_label, $.link_label), '[', ']'))),
+    _pipe_table_shortcut_link: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, prec(0, alias($._pipe_table_link_label, $.link_label))),
+    // Footnote reference `[^id]` inside a pipe-table cell: same external
+    // `[^` token (the scanner already refuses to emit it when the `]`-closer
+    // would cross an unescaped `|`), with `|` excluded from the label content
+    // as a second line of defence.
+    _pipe_table_footnote_reference: ($) => seq(
+      alias($._footnote_ref_open, $.footnote_reference_open),
+      alias(repeat1(choice(
+        $._word,
+        punctuation_without($, ['[', ']', '^', '|']),
+      )), $.footnote_reference_label),
+      ']',
+    ),
+    // Destination / title variants that exclude an unescaped `|` (same shape
+    // as `link_destination` / `link_title`).
+    _pipe_table_link_destination: ($) => prec.dynamic(PRECEDENCE_LEVEL_LINK, choice(
+      seq('<', repeat(choice($._pipe_table_text_no_angle, $.backslash_escape, $.entity_reference, $.numeric_character_reference)), '>'),
+      seq(
+        choice(
+          $._word,
+          punctuation_without($, ['<', '(', ')', '|']),
+          $.backslash_escape,
+          $.entity_reference,
+          $.numeric_character_reference,
+          $._pipe_table_link_destination_parenthesis,
+        ),
+        repeat(choice(
+          $._word,
+          punctuation_without($, ['(', ')', '|']),
+          $.backslash_escape,
+          $.entity_reference,
+          $.numeric_character_reference,
+          $._pipe_table_link_destination_parenthesis,
+        )),
+      ),
     )),
+    _pipe_table_link_destination_parenthesis: ($) => seq('(', repeat(choice(
+      $._word,
+      punctuation_without($, ['(', ')', '|']),
+      $.backslash_escape,
+      $.entity_reference,
+      $.numeric_character_reference,
+      $._pipe_table_link_destination_parenthesis,
+    )), ')'),
+    _pipe_table_text_no_angle: ($) => choice($._word, punctuation_without($, ['<', '>', '|']), $._whitespace),
+    _pipe_table_link_title: ($) => choice(
+      seq('"', repeat(choice(
+        $._word,
+        punctuation_without($, ['"', '|']),
+        $._whitespace,
+        $.backslash_escape,
+        $.entity_reference,
+        $.numeric_character_reference,
+        seq($._soft_line_break, optional(seq($._soft_line_break, $._trigger_error))),
+      )), '"'),
+      seq('\'', repeat(choice(
+        $._word,
+        punctuation_without($, ['\'', '|']),
+        $._whitespace,
+        $.backslash_escape,
+        $.entity_reference,
+        $.numeric_character_reference,
+        seq($._soft_line_break, optional(seq($._soft_line_break, $._trigger_error))),
+      )), '\''),
+      seq('(', repeat(choice(
+        $._word,
+        punctuation_without($, ['(', ')', '|']),
+        $._whitespace,
+        $.backslash_escape,
+        $.entity_reference,
+        $.numeric_character_reference,
+        seq($._soft_line_break, optional(seq($._soft_line_break, $._trigger_error))),
+      )), ')'),
+    ),
   },
 
   externals: ($) => [
@@ -1186,6 +1518,10 @@ export default grammar({
     $.task_list_marker_unchecked,
     $._math_inline_open_delimiter,
     $._math_inline_close_delimiter,
+    $._math_block_open,
+    $._math_block_close,
+    $._directive_block_open,
+    $._directive_block_close,
     $._fenced_code_block_start_backtick,
     $._fenced_code_block_start_tilde,
     $._blank_line_start,
@@ -1214,6 +1550,29 @@ export default grammar({
 
     $._pipe_table_start,
     $._pipe_table_line_ending,
+
+    $._emphasis_star_open,
+    $._emphasis_star_close,
+    $._emphasis_under_open,
+    $._emphasis_under_close,
+    $._strong_star_open,
+    $._strong_star_close,
+    $._strong_under_open,
+    $._strong_under_close,
+    $._strikethrough_open,
+    $._strikethrough_close,
+    $._autolink_open,
+    $._footnote_ref_open,
+    $._footnote_definition_start_open,
+    $._inline_code_backtick_1_open,
+    $._inline_code_backtick_1_close,
+    $._inline_code_backtick_2_open,
+    $._inline_code_backtick_2_close,
+    $._inline_code_backtick_run,
+    $._callout_marker_open_ext,
+    $._link_label_open,
+    $._link_label_nested_denied,
+    $._image_marker,
   ],
   precedences: ($) => [
     [$._setext_heading1, $._block],
@@ -1229,12 +1588,15 @@ export default grammar({
     [$._footnote_definition_continuation],
     [$.footnote_definition, $._line],
     [$.footnote_definition, $.link_reference_definition, $._line],
-    [$.image_block, $._line],
     [$.footnote_label, $._text_inline_no_link],
-    // Inline-content conflicts.
+    // Inline-content conflicts.  link_label keeps a literal-'[' fallback arm
+    // (see the link_label comment), so it stays ambiguous with `bracket` at
+    // element boundaries exactly as upstream; the scanner-gated
+    // LINK_LABEL_OPEN / CALLOUT_MARKER_OPEN tokens resolve the mid-span and
+    // callout cases, and these declarations cover the literal-'[' paths.
     [$.link_label, $.bracket],
+    [$._pipe_table_link_label, $.bracket],
     [$.link_label, $._callout_header_paragraph, $.bracket],
-    [$.link_label, $._callout_marker_open, $.bracket],
     [$.footnote_label, $.bracket],
     [$.footnote_reference, $.bracket],
     [$.image, $.bracket],
@@ -1247,17 +1609,18 @@ export default grammar({
     [$.strong, $.operator_like],
     [$.emphasis, $.operator_like],
     [$.strikethrough, $.operator_like],
-    [$.image_block, $.terminator, $.image],
     [$.footnote_definition, $.link_reference_definition, $._inline_element],
-    [$.image_block, $._inline_element],
     [$.terminator, $.image],
+    [$.terminator, $._pipe_table_image],
     [$.footnote_label, $.footnote_reference],
     [$.footnote_definition, $._inline_element],
-    [$.image_block, $.image],
     [$.link_destination, $.link_title],
+    [$._pipe_table_link_destination, $._pipe_table_link_title],
     [$._link_destination_parenthesis, $.link_title],
+    [$._pipe_table_link_destination_parenthesis, $._pipe_table_link_title],
     [$.link_reference_definition, $.shortcut_link],
     [$.inline_link, $.shortcut_link],
+    [$._pipe_table_inline_link, $._pipe_table_shortcut_link],
     [$.link_label, $.footnote_label, $.bracket, $.footnote_reference],
     [$.link_label, $.bracket, $.footnote_reference],
     [$.footnote_label, $._text_inline_no_link, $.footnote_reference],
@@ -1265,6 +1628,9 @@ export default grammar({
     [$.footnote_reference, $.text_span],
     [$.footnote_reference, $.bracket],
     [$.link_reference_definition, $._inline_element],
+    [$.pipe_table_row, $.pipe_table_cell, $._pipe_table_inline_content],
+    [$.pipe_table_row, $._pipe_table_inline_content],
+    [$._pipe_table_inline_content],
   ],
   extras: ($) => [],
 });

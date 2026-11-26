@@ -1,0 +1,264 @@
+================================================================================
+Standalone image paragraph
+================================================================================
+![alt text](./pic.png)
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (image
+          (link_label
+            (text_span
+              (word_token))
+            (text_span
+              (word_token)))
+          (link_destination))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Image followed by continuation stays paragraph
+================================================================================
+![alt](./pic.png)
+continued text.
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Standalone image with external URL
+================================================================================
+![Logo](https://example.com/logo.svg)
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Inline image in paragraph is not an image block
+================================================================================
+Some text ![alt](./pic.png) and more text.
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Single image at end of file
+================================================================================
+![alt](./pic.png)
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))))))
+
+================================================================================
+Standalone image with title
+================================================================================
+![alt](./pic.png "title")
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination)
+          (link_title))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Standalone image followed by trailing text (#10)
+================================================================================
+![i](m.png) tail
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination))
+        (text_span
+          (word_token))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Standalone image in a list item
+================================================================================
+- ![alt](./pic.png)
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (list
+      (list_item
+        (list_marker_minus)
+        (paragraph
+          (inline
+            (image
+              (link_label
+                (text_span
+                  (word_token)))
+              (link_destination)))
+          (block_continuation))
+        (blank_line)))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Standalone image in a block quote
+================================================================================
+> ![alt](./pic.png)
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (block_quote
+      (block_quote_marker)
+      (paragraph
+        (inline
+          (image
+            (link_label
+              (text_span
+                (word_token)))
+            (link_destination)))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Standalone image with title at end of file
+================================================================================
+![alt](./pic.png "title")
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination)
+          (link_title))))))

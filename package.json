@@ -8,8 +8,19 @@
     "url": "git+https://github.com/ophidiarium/tree-sitter-markdown-text.git"
   },
   "license": "MIT",
-  "main": "bindings/node",
-  "types": "bindings/node",
+  "main": "bindings/node/index.cjs",
+  "types": "bindings/node/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./bindings/node/index.d.ts",
+      "import": "./bindings/node/index.js",
+      "require": "./bindings/node/index.cjs"
+    },
+    "./grammar": "./grammar.js",
+    "./grammar.js": "./grammar.js",
+    "./package.json": "./package.json",
+    "./*": "./*"
+  },
   "keywords": [
     "incremental",
     "parsing",
