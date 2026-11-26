@@ -119,6 +119,36 @@ literal text instead of swallowing the document. **No cross-block issues remain.
   built.
 - **Consumer:** `p1_ref_full_structured` in the `rea-skills` emphasis-regression-v2 gate.
 
+## Packaging (non-parser) — tracked here because the issue tracker will be frozen
+
+The entries below are not parser defects; they are recorded in this document so they
+survive the archival of the upstream issue tracker ([pavlablo fork](https://github.com/pavlablo/tree-sitter-markdown-text),
+where issues become read-only).
+
+### PK1 — consumer `node_modules/.bin` polluted with `node-gyp-build` shims — NOT FIXED
+- **Symptom:** installing this grammar (which declares no `bin`) links three third-party
+  shims into the consumer's `node_modules/.bin` — `node-gyp-build`, `node-gyp-build-optional`,
+  `node-gyp-build-test` — and all three answer `--help` with garbage (invalid-option / empty
+  output / path errors). Correct end state: an empty `.bin`.
+- **Root cause (chain):** no `prebuilds/` are shipped despite `files` promising
+  `prebuilds/**` → `install: node-gyp-build` compiles natively on every consumer machine →
+  `node-gyp-build` sits in runtime `dependencies` → npm/pnpm/yarn link **every** dependency's
+  bins, and consumers have no flag to filter foreign shims. The only fix point is this
+  package's own packaging.
+- **Impact:** consumer tooling that discovers executables by scanning `.bin` and probing
+  `--help` gets noise instead of facts. Cannot be fixed downstream.
+- **Status:** ❌ **Not fixed.** Full write-up, runnable repro and acceptance criteria:
+  [issue #11](https://github.com/pavlablo/tree-sitter-markdown-text/issues/11) (archived
+  tracker remains readable). Downstream ticket `ai/rea-skills#92` stays open until the
+  consumer pin is bumped to a fixed tag.
+- **Progress so far:** `repository.url` now points at the maintained `gratex` fork (fixed in
+  this document's repo, commit `433b49b`); the tag≠version convention (`v1.2.x` vs
+  `package.json 0.2.1`) is deliberate and documented in [AGENTS.md](AGENTS.md) (decoupled
+  versioning), so only the prebuilds/bin question remains open.
+- **Last reviewed:** 2026-11-26.
+
+<!-- Generated/modified by AI Kilo Code 7.8.18-gratex-027, used model mimo-2.6-flash (PK1 entry added for issue #11) -->
+
 ---
 
 ## Safe-degradation (deliberate, spec-correct) — not duplicated here
