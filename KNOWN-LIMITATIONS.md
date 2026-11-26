@@ -40,7 +40,7 @@ literal text instead of swallowing the document. **No cross-block issues remain.
 - **Frequency note:** 0 occurrences observed in the 1395-file `rea-skills` corpus (2026-09-13),
   but the trigger is ordinary prose, so this was a latent landmine rather than a present-in-the-wild hit.
 
-## Fixed (2026-09-14, branch `fix/emphasis-block-boundary`)
+## Fixed (2026-09-14 – 2026-11-25, branch `fix/emphasis-block-boundary`)
 
 ### D1 — single-line display math `$$math$$` — FIXED
 - **Symptom (was):** `$$math$$` → `ERROR` on the opening `$$`. Contained.

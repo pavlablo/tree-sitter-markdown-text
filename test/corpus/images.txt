@@ -59,7 +59,7 @@ Trailing paragraph.
           (terminator))))))
 
 ================================================================================
-Block image with external URL
+Standalone image with external URL
 ================================================================================
 ![Logo](https://example.com/logo.svg)
 
@@ -187,3 +187,78 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+================================================================================
+Standalone image in a list item
+================================================================================
+- ![alt](./pic.png)
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (list
+      (list_item
+        (list_marker_minus)
+        (paragraph
+          (inline
+            (image
+              (link_label
+                (text_span
+                  (word_token)))
+              (link_destination)))
+          (block_continuation))
+        (blank_line)))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Standalone image in a block quote
+================================================================================
+> ![alt](./pic.png)
+
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (block_quote
+      (block_quote_marker)
+      (paragraph
+        (inline
+          (image
+            (link_label
+              (text_span
+                (word_token)))
+            (link_destination)))))
+    (blank_line)
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
+
+================================================================================
+Standalone image with title at end of file
+================================================================================
+![alt](./pic.png "title")
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (paragraph
+      (inline
+        (image
+          (link_label
+            (text_span
+              (word_token)))
+          (link_destination)
+          (link_title))))))

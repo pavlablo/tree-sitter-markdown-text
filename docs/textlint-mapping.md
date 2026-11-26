@@ -25,7 +25,7 @@ This grammar's node types are close to — but not byte-identical with — the t
 | `FootnoteDefinition` | `footnoteDefinition` | `footnote_definition` | With `footnote_label` child and an `inline` content node. |
 | *(no direct counterpart)* | *(no direct counterpart)* | `math_block` | Pandoc / GitLab / KaTeX display math `$$ … $$`. |
 | *(no direct counterpart)* | *(no direct counterpart)* | `directive_block` | Generic container directives `:::name … :::` (remark-directive / MyST / Pandoc fenced divs). |
-| `Image` when block-level | `image` at root scope | `paragraph` > `inline` > `image` | A paragraph whose entire content is a single image `![alt](dest)` is parsed as a normal `paragraph` with an inline `image` child — there is no block-level image node (deviation from mehen §3.1). Inline images embedded in prose are likewise `image` children of the `inline` wrapper. |
+| `Image` when block-level | `image` at root scope | `paragraph` > `inline` > `image` | A paragraph whose entire content is a single image `![alt](dest)` is parsed as a normal `paragraph` with an inline `image` child — there is no block-level image node. Inline images embedded in prose are likewise `image` children of the `inline` wrapper. |
 
 ## Inline-level nodes (children of the `inline` wrapper)
 
