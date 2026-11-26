@@ -144,10 +144,6 @@
           "named": true
         },
         {
-          "type": "image_block",
-          "named": true
-        },
-        {
           "type": "indented_code_block",
           "named": true
         },
@@ -252,10 +248,6 @@
         },
         {
           "type": "html_block",
-          "named": true
-        },
-        {
-          "type": "image_block",
           "named": true
         },
         {
@@ -744,29 +736,6 @@
     }
   },
   {
-    "type": "image_block",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "block_continuation",
-          "named": true
-        },
-        {
-          "type": "link_destination",
-          "named": true
-        },
-        {
-          "type": "link_label",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "indented_code_block",
     "named": true,
     "fields": {},
@@ -1184,10 +1153,6 @@
           "named": true
         },
         {
-          "type": "image_block",
-          "named": true
-        },
-        {
           "type": "indented_code_block",
           "named": true
         },
@@ -1542,10 +1507,6 @@
         },
         {
           "type": "html_block",
-          "named": true
-        },
-        {
-          "type": "image_block",
           "named": true
         },
         {
@@ -1921,10 +1882,6 @@
         },
         {
           "type": "html_block",
-          "named": true
-        },
-        {
-          "type": "image_block",
           "named": true
         },
         {

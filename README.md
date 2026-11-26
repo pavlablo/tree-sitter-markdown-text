@@ -41,7 +41,7 @@ This grammar is a **fork** of [`ophi-dev/tree-sitter-markdown-text`](https://git
 
 - **Four explicit link kinds.** The single `link` node is split into `inline_link`, `full_reference_link`, `collapsed_reference_link`, and `shortcut_link`, so a consumer can tell link syntax apart without re-tokenizing the source.
 - **Structural content inside link labels.** `link_label` children are parsed into structured inline nodes (code spans, emphasis/strong, autolinks, etc.) instead of opaque text.
-- **All image reference forms.** Images support the same four forms as links &mdash; `![alt](dest)` inline, `![alt][label]` full reference, `![alt][]` collapsed reference, `![alt]` shortcut reference &mdash; plus a block-level `image_block` for a standalone image paragraph.
+- **All image reference forms.** Images support the same four forms as links &mdash; `![alt](dest)` inline, `![alt][label]` full reference, `![alt][]` collapsed reference, `![alt]` shortcut reference.
 - **A reference-style link resolver layer** in [`tools/link-resolver`](tools/link-resolver/) that consumes the parse tree (via ast-grep custom-language scanning) and resolves reference links against `link_reference_definition`s per CommonMark normalization rules. It is a post-processing tool, not part of the grammar.
 
 ### Runaway-emphasis fix
@@ -77,7 +77,7 @@ These additions are surfaced as new kinds in `src/node-types.json`; see the [Nod
 - **Link reference definitions** &mdash; `link_reference_definition` with `link_label`/`link_destination`/`link_title` children.
 - **Footnote definitions** &mdash; `footnote_definition` (`[^id]: …`) with a `footnote_label` child.
 - **Directive blocks** &mdash; generic container directives (`:::name … :::`, per remark-directive / MyST / Pandoc fenced divs) as `directive_block` with `directive_block_delimiter`/`directive_name`/`directive_block_content` children.
-- **Image blocks** &mdash; a paragraph consisting of a single block-level image (`![alt](dest)` on its own line) is surfaced as `image_block` with `link_label`/`link_destination` children.
+- **Images in paragraphs** &mdash; a paragraph consisting of a single image (`![alt](dest)` on its own line) is parsed as a normal `paragraph` with an inline `image` child. There is no block-level image node, so standalone, EOF and titled images all share the same `paragraph > inline > image` shape.
 - **Front matter** &mdash; YAML (`---` fenced) as `minus_metadata`, TOML (`+++` fenced) as `plus_metadata`.
 
 ### Inline nodes (children of the `inline` wrapper)
@@ -269,7 +269,7 @@ require a structural rewrite.
 | `link` | `inline_link` / `full_reference_link` / `collapsed_reference_link` / `shortcut_link` | The four reference forms are explicit kinds in this fork. |
 | `link_text` / `image_description` | `link_label` | Label text is parsed structurally, not opaque. |
 | `link_destination`, `link_title` | same name | |
-| `image` | `image` (plus `image_block` for a standalone image paragraph) | |
+| `image` | `image` | |
 | `code_span` | `inline_code` | |
 | `emphasis` | `emphasis` | |
 | `strong_emphasis` | `strong` | |
@@ -424,13 +424,11 @@ autolinks and reference definitions:
 | `autolink` | `<https://…>` / `<user@…>` | `uri`, `email` |
 | `link_reference_definition` | `[label]: dest "title"` | `link_label`, `link_destination`, `link_title` |
 
-**Images** — all four reference forms collapse into one `image` node, plus the
-block-level form:
+**Images** — all four reference forms collapse into one `image` node:
 
 | kind | meaning | children |
 |---|---|---|
 | `image` | `![alt](dest)`, `![alt][label]`, `![alt][]`, `![alt]` | `link_label`, `link_destination`, `link_title` |
-| `image_block` | standalone block-level image paragraph | `link_label`, `link_destination` |
 
 **Code blocks / code spans:**
 
