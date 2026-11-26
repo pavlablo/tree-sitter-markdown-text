@@ -13,6 +13,7 @@
 - Fixture parse check: `tree-sitter parse test/fixtures/<file>.md` — exit non-zero on `ERROR` / `MISSING`.
 - Reliable error count in scripts: `grep -cE '\(ERROR|\(MISSING' output.txt || true` (bare `grep -c` returns exit 1 on zero matches).
 - Each corpus case needs content that doesn't depend on a trailing newline to close — add a `Trailing paragraph.` line after the node under test. Tree-sitter `test` does not append a newline to case sources.
+- **Full local sweep** (mirrors CI): `npm run generate && tree-sitter test && npm run lint && npm run typecheck && clang-tidy src/scanner.c -- -std=c11 -Isrc && cargo test && CGO_ENABLED=1 go test ./... && bash go-compat/acceptance.sh`.
 
 ## Scanner (src/scanner.c)
 
