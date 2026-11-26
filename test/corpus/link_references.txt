@@ -20,3 +20,25 @@ Trailing paragraph.
         (text_span
           (word_token)
           (terminator))))))
+
+================================================================================
+Link reference definition with trailing whitespace after destination
+================================================================================
+[a]: https://x.com   
+Trailing paragraph.
+--------------------------------------------------------------------------------
+
+(document
+  (section
+    (link_reference_definition
+      (link_label
+        (text_span
+          (word_token)))
+      (link_destination))
+    (paragraph
+      (inline
+        (text_span
+          (word_token))
+        (text_span
+          (word_token)
+          (terminator))))))
