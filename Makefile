@@ -1,5 +1,5 @@
 LANGUAGE_NAME := tree-sitter-markdown-text
-HOMEPAGE_URL := https://github.com/ophidiarium/tree-sitter-markdown-text
+HOMEPAGE_URL := https://github.com/gratex/tree-sitter-markdown-text
 VERSION := 0.2.1
 
 # repository

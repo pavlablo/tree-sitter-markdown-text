@@ -13,13 +13,13 @@ classifiers = [
   "Topic :: Text Processing :: Linguistic",
   "Typing :: Typed",
 ]
-authors = [{ name = "Ophidiarium" }]
+authors = [{ name = "Gratex" }]
 requires-python = ">=3.10"
 license.text = "MIT"
 readme = "README.md"
 
 [project.urls]
-Homepage = "https://github.com/ophidiarium/tree-sitter-markdown-text"
+Homepage = "https://github.com/gratex/tree-sitter-markdown-text"
 
 [project.optional-dependencies]
 core = ["tree-sitter~=0.24"]

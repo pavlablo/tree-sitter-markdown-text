@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.13)
 project(tree-sitter-markdown-text
         VERSION "0.2.1"
         DESCRIPTION "Markdown grammar for tree-sitter, with a textlint-style AST shape"
-        HOMEPAGE_URL "https://github.com/ophidiarium/tree-sitter-markdown-text"
+        HOMEPAGE_URL "https://github.com/gratex/tree-sitter-markdown-text"
         LANGUAGES C)
 
 option(BUILD_SHARED_LIBS "Build using shared libraries" ON)

@@ -2,12 +2,12 @@
 name = "tree-sitter-markdown-text"
 description = "Markdown grammar for tree-sitter, with a textlint-style AST shape"
 version = "0.2.1"
-authors = ["Ophidiarium"]
+authors = ["Gratex"]
 license = "MIT"
 readme = "README.md"
 keywords = ["incremental", "parsing", "tree-sitter", "markdown", "textlint"]
 categories = ["parser-implementations", "parsing", "text-editors"]
-repository = "https://github.com/ophidiarium/tree-sitter-markdown-text"
+repository = "https://github.com/gratex/tree-sitter-markdown-text"
 edition = "2021"
 autoexamples = false
 

@@ -28,11 +28,11 @@
     "description": "Markdown grammar for tree-sitter, with a textlint-style AST shape",
     "authors": [
       {
-        "name": "Ophidiarium"
+        "name": "Gratex"
       }
     ],
     "links": {
-      "repository": "https://github.com/ophidiarium/tree-sitter-markdown-text"
+      "repository": "https://github.com/gratex/tree-sitter-markdown-text"
     }
   },
   "bindings": {
